@@ -42,7 +42,7 @@ export default function Login() {
   // Exibido somente após o envio do formulário de login.
   if (isLoading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background text-center">
+      <div className="h-screen overflow-hidden flex flex-col items-center justify-center gap-4 bg-background text-center">
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/20">
           <LoaderCircle className="h-8 w-8 animate-spin text-primary" aria-hidden="true" />
         </div>
@@ -55,7 +55,7 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-4">
+    <div className="h-screen overflow-hidden flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md animate-fade-in">
         <CardHeader className="text-center space-y-4">
           <div className="flex items-center justify-center">
