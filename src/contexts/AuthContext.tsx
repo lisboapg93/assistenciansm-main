@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useCallback, useContext, useState, useEffect, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { User, Session } from "@supabase/supabase-js";
 
@@ -18,6 +18,10 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
+
+const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
+const LAST_ACTIVITY_STORAGE_KEY = "assistencia-nsm-last-activity";
+const ACTIVITY_EVENTS = ["mousedown", "mousemove", "keydown", "scroll", "touchstart"];
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -106,12 +110,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error as Error | null };
   };
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
+  const signOut = useCallback(async () => {
+    localStorage.removeItem(LAST_ACTIVITY_STORAGE_KEY);
     setUser(null);
     setSession(null);
     setUserRole(null);
-  };
+    await supabase.auth.signOut();
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    let timeoutId: number | undefined;
+
+    const scheduleSignOut = () => {
+      if (timeoutId) window.clearTimeout(timeoutId);
+
+      const lastActivity = Number(localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY));
+      const elapsedTime = Number.isFinite(lastActivity) ? Date.now() - lastActivity : 0;
+      const remainingTime = INACTIVITY_TIMEOUT_MS - elapsedTime;
+
+      if (remainingTime <= 0) {
+        void signOut();
+        return;
+      }
+
+      timeoutId = window.setTimeout(() => void signOut(), remainingTime);
+    };
+
+    const registerActivity = () => {
+      localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(Date.now()));
+      scheduleSignOut();
+    };
+
+    if (localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY)) {
+      scheduleSignOut();
+    } else {
+      registerActivity();
+    }
+
+    ACTIVITY_EVENTS.forEach((eventName) => window.addEventListener(eventName, registerActivity));
+
+    return () => {
+      if (timeoutId) window.clearTimeout(timeoutId);
+      ACTIVITY_EVENTS.forEach((eventName) => window.removeEventListener(eventName, registerActivity));
+    };
+  }, [user, signOut]);
 
   return (
     <AuthContext.Provider
