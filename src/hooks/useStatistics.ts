@@ -12,6 +12,7 @@ interface StatisticsResult {
   totalSessions: number;
   totalConsumed: number;
   averageConsumption: number;
+  averageConsumptionPerMember: number;
   averageParticipants: number;
   sessionsRemaining: number;
   monthsRemaining: number;
@@ -42,6 +43,7 @@ export function useStatistics(sessions: Session[] | undefined, filters?: Statist
         totalSessions: 0,
         totalConsumed: 0,
         averageConsumption: 0,
+        averageConsumptionPerMember: 0,
         averageParticipants: 0,
         sessionsRemaining: 0,
         monthsRemaining: 0,
@@ -64,6 +66,12 @@ export function useStatistics(sessions: Session[] | undefined, filters?: Statist
       0
     );
     const averageConsumption = totalConsumed / totalSessions;
+    const totalMemberAttendances = filteredSessions.reduce(
+      (sum, session) => sum + Number(session.participants?.socios || 0),
+      0
+    );
+    const averageConsumptionPerMember =
+      totalMemberAttendances > 0 ? totalConsumed / totalMemberAttendances : 0;
     const averageParticipants =
       filteredSessions.reduce((sum, s) => sum + s.total_participants, 0) / totalSessions;
 
@@ -132,6 +140,7 @@ export function useStatistics(sessions: Session[] | undefined, filters?: Statist
       totalSessions,
       totalConsumed,
       averageConsumption,
+      averageConsumptionPerMember,
       averageParticipants,
       sessionsRemaining,
       monthsRemaining,

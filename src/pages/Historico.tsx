@@ -42,6 +42,7 @@ import {
   Mic,
   Edit,
   Upload,
+  Download,
   ChevronDown,
 } from "lucide-react";
 import { CsvImportDialog } from "@/components/session/CsvImportDialog";
@@ -54,6 +55,8 @@ import { ptBR } from "date-fns/locale";
 import { parseDbDateToLocal } from "@/lib/date";
 import { Badge } from "@/components/ui/badge";
 import { useAuthContext } from "@/contexts/AuthContext";
+import { exportHistoryToXlsx } from "@/lib/exportHistory";
+import { toast } from "sonner";
 
 const MONTHS = [
   { value: "0", label: "Janeiro" },
@@ -93,6 +96,7 @@ export default function Historico() {
     lastMonths: undefined as number | undefined,
   });
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
 
   const { data: sessions, isLoading } = useSessions({
     search: filters.search,
@@ -112,6 +116,20 @@ export default function Historico() {
     queryClient.invalidateQueries({ queryKey: ["sessions"] });
   };
 
+  const handleExport = async () => {
+    if (!sessions?.length) return;
+    setIsExporting(true);
+    try {
+      await exportHistoryToXlsx(sessions);
+      toast.success("Backup do histórico exportado com sucesso!");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "erro desconhecido";
+      toast.error(`Não foi possível exportar o histórico: ${message}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <MainLayout>
       <div className="space-y-6 animate-fade-in">
@@ -123,12 +141,23 @@ export default function Historico() {
               {sessions?.length || 0} sessões encontradas
             </p>
           </div>
-          {isEditor && (
-            <Button onClick={() => setShowImportDialog(true)} variant="outline" className="gap-2">
-              <Upload className="h-4 w-4" />
-              Importar CSV
+          <div className="flex flex-wrap gap-2">
+            <Button
+              onClick={handleExport}
+              variant="outline"
+              className="gap-2"
+              disabled={!sessions?.length || isExporting}
+            >
+              <Download className="h-4 w-4" />
+              {isExporting ? "Exportando..." : "Exportar XLSX"}
             </Button>
-          )}
+            {isEditor && (
+              <Button onClick={() => setShowImportDialog(true)} variant="outline" className="gap-2">
+                <Upload className="h-4 w-4" />
+                Importar CSV
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Filters */}

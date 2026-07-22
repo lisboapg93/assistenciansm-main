@@ -10,6 +10,14 @@ import {
 } from "@/components/ui/select";
 import { StatCard } from "@/components/ui/stat-card";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   BarChart,
   Bar,
   XAxis,
@@ -62,6 +70,12 @@ const MOVEMENT_COLORS: Record<MovementType, string> = {
   Saldo: "hsl(280, 70%, 50%)",
 };
 
+const movementEffect = (type: MovementType, quantity: number) => {
+  if (type === "Entrada" || type === "Saldo") return Math.abs(quantity);
+  if (type === "Ajuste") return -quantity;
+  return -Math.abs(quantity);
+};
+
 export default function Relatorios() {
   const [year, setYear] = useState(currentYear);
   const [averageType, setAverageType] = useState("");
@@ -97,9 +111,14 @@ export default function Relatorios() {
     return Object.values(counts).sort((a, b) => b.litros - a.litros);
   }, [movements, year]);
 
-  // Stock evolution chart data (cumulative stock over time)
+  // Monthly flows and cumulative balance for the selected year.
   const stockEvolutionData = useMemo(() => {
     if (!movements) return [];
+
+    const yearStart = new Date(year, 0, 1).getTime();
+    let accumulatedBalance = movements
+      .filter((m) => new Date(m.date).getTime() < yearStart)
+      .reduce((sum, m) => sum + movementEffect(m.type, Number(m.quantity)), 0);
 
     const yearMovements = movements
       .filter((m) => new Date(m.date).getFullYear() === year)
@@ -108,32 +127,57 @@ export default function Relatorios() {
     if (yearMovements.length === 0) return [];
 
     // Group by month
-    const monthlyData: Record<string, { entrada: number; saida: number; consumo: number }> = {};
+    const monthlyData: Record<string, { month: string; entrada: number; saida: number; consumo: number }> = {};
 
     yearMovements.forEach((m) => {
-      const monthKey = format(parseISO(m.date), "MMM", { locale: ptBR });
+      const monthIndex = new Date(m.date).getMonth();
+      const monthKey = String(monthIndex).padStart(2, "0");
       if (!monthlyData[monthKey]) {
-        monthlyData[monthKey] = { entrada: 0, saida: 0, consumo: 0 };
+        monthlyData[monthKey] = {
+          month: format(parseISO(m.date), "MMM", { locale: ptBR }),
+          entrada: 0,
+          saida: 0,
+          consumo: 0,
+        };
       }
 
       if (m.type === "Entrada" || m.type === "Saldo") {
-        monthlyData[monthKey].entrada += m.quantity;
-      } else if (m.type === "Saída" || m.type === "Ajuste") {
-        monthlyData[monthKey].saida += Math.abs(m.quantity);
+        monthlyData[monthKey].entrada += Math.abs(Number(m.quantity));
+      } else if (m.type === "Saída") {
+        monthlyData[monthKey].saida += Math.abs(Number(m.quantity));
+      } else if (m.type === "Ajuste") {
+        if (Number(m.quantity) >= 0) monthlyData[monthKey].saida += Number(m.quantity);
+        else monthlyData[monthKey].entrada += Math.abs(Number(m.quantity));
       } else if (m.type === "Consumo") {
-        monthlyData[monthKey].consumo += Math.abs(m.quantity);
+        monthlyData[monthKey].consumo += Math.abs(Number(m.quantity));
       }
     });
 
-    return Object.entries(monthlyData).map(([month, data]) => ({
-      month,
-      entrada: Number(data.entrada.toFixed(2)),
-      saida: Number(data.saida.toFixed(2)),
-      consumo: Number(data.consumo.toFixed(2)),
-    }));
+    return Object.keys(monthlyData).sort().map((key) => {
+      const data = monthlyData[key];
+      accumulatedBalance += data.entrada - data.saida - data.consumo;
+      return {
+        month: data.month,
+        entrada: Number(data.entrada.toFixed(2)),
+        saida: Number(data.saida.toFixed(2)),
+        consumo: Number(data.consumo.toFixed(2)),
+        saldo: Number(Math.max(0, accumulatedBalance).toFixed(2)),
+      };
+    });
   }, [movements, year]);
 
-  if (isLoading) {
+  const assistanceReport = useMemo(() => {
+    const grouped: Record<string, { type: string; sessions: number; consumption: number; members: number }> = {};
+    (sessions || []).forEach((session) => {
+      grouped[session.type] ||= { type: session.type, sessions: 0, consumption: 0, members: 0 };
+      grouped[session.type].sessions += 1;
+      grouped[session.type].consumption += Number(session.consumption?.total_consumed || 0);
+      grouped[session.type].members += Number(session.participants?.socios || 0);
+    });
+    return Object.values(grouped).sort((a, b) => b.sessions - a.sessions);
+  }, [sessions]);
+
+  if (isLoading || isLoadingMovements) {
     return (
       <MainLayout>
         <div className="space-y-6">
@@ -179,7 +223,7 @@ export default function Relatorios() {
         </div>
 
         {/* KPIs */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <StatCard
             title="Total de Sessões"
             value={stats.totalSessions}
@@ -196,7 +240,7 @@ export default function Relatorios() {
           />
           <Card className="relative overflow-hidden">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Média de Consumo</CardTitle>
+              <CardTitle className="text-sm font-medium">Média por Sessão</CardTitle>
               <TrendingUp className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
@@ -219,6 +263,20 @@ export default function Relatorios() {
                   ))}
                 </SelectContent>
               </Select>
+            </CardContent>
+          </Card>
+          <Card className="relative overflow-hidden">
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Média por Sócio</CardTitle>
+              <Users className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {statsFiltered.averageConsumptionPerMember.toFixed(3)} L
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Por presença de sócio · {averageType || "Todos os tipos"}
+              </p>
             </CardContent>
           </Card>
           <Card className="relative overflow-hidden border-green-200 dark:border-green-900">
@@ -331,7 +389,7 @@ export default function Relatorios() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <TrendingUp className="h-5 w-5 text-primary" />
-              Evolução de Movimentações por Mês
+              Visão Acumulada do Estoque por Mês
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -353,7 +411,13 @@ export default function Relatorios() {
                     }}
                     formatter={(value: number, name: string) => [
                       `${value.toFixed(2)} L`,
-                      name === "entrada" ? "Entradas" : name === "saida" ? "Saídas" : "Consumo",
+                      name === "entrada"
+                        ? "Entradas"
+                        : name === "saida"
+                          ? "Saídas"
+                          : name === "saldo"
+                            ? "Saldo acumulado"
+                            : "Consumo",
                     ]}
                   />
                   <Line
@@ -380,6 +444,14 @@ export default function Relatorios() {
                     dot={{ fill: MOVEMENT_COLORS.Consumo, strokeWidth: 2 }}
                     name="consumo"
                   />
+                  <Line
+                    type="monotone"
+                    dataKey="saldo"
+                    stroke={MOVEMENT_COLORS.Saldo}
+                    strokeWidth={3}
+                    dot={{ fill: MOVEMENT_COLORS.Saldo, strokeWidth: 2 }}
+                    name="saldo"
+                  />
                 </LineChart>
               </ResponsiveContainer>
             )}
@@ -396,7 +468,87 @@ export default function Relatorios() {
                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: MOVEMENT_COLORS.Consumo }} />
                 <span>Consumo</span>
               </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: MOVEMENT_COLORS.Saldo }} />
+                <span>Saldo acumulado</span>
+              </div>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ArrowUpDown className="h-5 w-5 text-primary" />
+              Ocorrências de Estoque por Período em {year}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 overflow-x-auto">
+            {stockEvolutionData.length === 0 ? (
+              <p className="text-muted-foreground text-center py-8">Sem ocorrências no período</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Período</TableHead>
+                    <TableHead className="text-right">Entrada</TableHead>
+                    <TableHead className="text-right">Saída</TableHead>
+                    <TableHead className="text-right">Consumo</TableHead>
+                    <TableHead className="text-right">Saldo acumulado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {stockEvolutionData.map((row) => (
+                    <TableRow key={row.month}>
+                      <TableCell className="font-medium capitalize">{row.month}</TableCell>
+                      <TableCell className="text-right">{row.entrada.toFixed(2)} L</TableCell>
+                      <TableCell className="text-right">{row.saida.toFixed(2)} L</TableCell>
+                      <TableCell className="text-right">{row.consumo.toFixed(2)} L</TableCell>
+                      <TableCell className="text-right font-medium">{row.saldo.toFixed(2)} L</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Calendar className="h-5 w-5 text-primary" />
+              Ocorrências por Assistência em {year}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0 overflow-x-auto">
+            {assistanceReport.length === 0 ? (
+              <p className="text-muted-foreground text-center py-8">Sem ocorrências no período</p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Assistência</TableHead>
+                    <TableHead className="text-right">Sessões</TableHead>
+                    <TableHead className="text-right">Consumo</TableHead>
+                    <TableHead className="text-right">Média/sessão</TableHead>
+                    <TableHead className="text-right">Média/sócio</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {assistanceReport.map((row) => (
+                    <TableRow key={row.type}>
+                      <TableCell className="font-medium">{row.type}</TableCell>
+                      <TableCell className="text-right">{row.sessions}</TableCell>
+                      <TableCell className="text-right">{row.consumption.toFixed(2)} L</TableCell>
+                      <TableCell className="text-right">{(row.consumption / row.sessions).toFixed(2)} L</TableCell>
+                      <TableCell className="text-right">
+                        {row.members > 0 ? (row.consumption / row.members).toFixed(3) : "0.000"} L
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
 

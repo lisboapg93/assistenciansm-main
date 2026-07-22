@@ -28,6 +28,7 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { ArrowDownRight, ArrowUpRight, Settings, Droplets } from "lucide-react";
 import { useAuthContext } from "@/contexts/AuthContext";
+import { useMemo } from "react";
 
 interface VegetalDetailModalProps {
   vegetal: Vegetal | null;
@@ -50,6 +51,32 @@ export function VegetalDetailModal({
 
   const updateVegetal = useUpdateVegetal();
   const { data: movements } = useStockMovements(vegetal?.id);
+
+  const movementsWithBalance = useMemo(() => {
+    if (!movements) return [];
+
+    let balanceAfterMovement = Number(vegetal?.quantity || 0);
+    const reverseChronological = [...movements].sort(
+      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+    );
+
+    return reverseChronological.map((movement) => {
+      const quantity = Number(movement.quantity);
+      const effect =
+        movement.type === "Entrada" || movement.type === "Saldo"
+          ? Math.abs(quantity)
+          : movement.type === "Ajuste"
+            ? -quantity
+            : -Math.abs(quantity);
+      const movementWithBalance = {
+        ...movement,
+        effect,
+        balance: Math.max(0, balanceAfterMovement),
+      };
+      balanceAfterMovement -= effect;
+      return movementWithBalance;
+    });
+  }, [movements, vegetal?.quantity]);
 
   if (!vegetal) return null;
 
@@ -300,12 +327,12 @@ export function VegetalDetailModal({
 
           <TabsContent value="historico" className="mt-4">
             <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
-              {movements?.length === 0 ? (
+              {movementsWithBalance.length === 0 ? (
                 <p className="text-center text-muted-foreground py-4">
                   Nenhuma movimentação registrada
                 </p>
               ) : (
-                movements?.map((m) => (
+                movementsWithBalance.map((m) => (
                   <div
                     key={m.id}
                     className="flex items-start gap-3 p-3 rounded-lg bg-muted/50"
@@ -321,16 +348,19 @@ export function VegetalDetailModal({
                       <p className="text-xs text-muted-foreground break-words">
                         {m.details}
                       </p>
+                      <p className="text-xs font-medium mt-1">
+                        Saldo após movimentação: {m.balance.toFixed(2)} L
+                      </p>
                     </div>
                     <p
                       className={`shrink-0 text-sm font-medium ${
-                        m.type === "Entrada" || m.type === "Saldo"
+                        m.effect >= 0
                           ? "text-primary"
                           : "text-destructive"
                       }`}
                     >
-                      {m.type === "Entrada" || m.type === "Saldo" ? "+" : "-"}
-                      {Number(m.quantity).toFixed(2)} L
+                      {m.effect >= 0 ? "+" : "-"}
+                      {Math.abs(m.effect).toFixed(2)} L
                     </p>
                   </div>
                 ))

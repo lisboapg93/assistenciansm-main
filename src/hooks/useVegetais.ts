@@ -91,6 +91,14 @@ export function useUpdateVegetal() {
       movementType?: "Saída" | "Ajuste";
       movementDetails?: string;
     }) => {
+      const { data: currentVegetal, error: currentError } = await supabase
+        .from("vegetal")
+        .select("quantity")
+        .eq("id", id)
+        .single();
+
+      if (currentError) throw currentError;
+
       const { data, error } = await supabase
         .from("vegetal")
         .update(updates)
@@ -102,15 +110,17 @@ export function useUpdateVegetal() {
 
       // Create stock movement if quantity changed
       if (movementType && updates.quantity !== undefined) {
-        const oldVegetal = queryClient.getQueryData<Vegetal[]>(["vegetais"])?.find(v => v.id === id);
-        const quantityDiff = oldVegetal ? oldVegetal.quantity - updates.quantity : updates.quantity;
-        
-        await supabase.from("stock_movement").insert({
+        const previousQuantity = Number(currentVegetal.quantity);
+        const quantityDiff = previousQuantity - Number(updates.quantity);
+        const { error: movementError } = await supabase.from("stock_movement").insert({
           type: movementType,
-          quantity: Math.abs(quantityDiff),
+          // Saídas são positivas. No ajuste, um valor negativo representa acréscimo.
+          quantity: movementType === "Ajuste" ? quantityDiff : Math.abs(quantityDiff),
           vegetal_id: id,
           details: movementDetails || `${movementType} de estoque`,
         });
+
+        if (movementError) throw movementError;
       }
 
       return data;
@@ -118,6 +128,7 @@ export function useUpdateVegetal() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vegetais"] });
       queryClient.invalidateQueries({ queryKey: ["vegetal"] });
+      queryClient.invalidateQueries({ queryKey: ["stock_movements"] });
       toast.success("Vegetal atualizado!");
     },
     onError: (error) => {
