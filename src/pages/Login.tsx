@@ -104,9 +104,11 @@ export default function Login() {
                 />
               </div>
             </div>
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? "Entrando..." : "Entrar"}
-            </Button>
+            <div className="pt-6">
+              <Button type="submit" className="h-12 w-full text-lg font-bold" disabled={isLoading}>
+                {isLoading ? "Entrando..." : "Entrar"}
+              </Button>
+            </div>
           </form>
         </CardContent>
       </Card>

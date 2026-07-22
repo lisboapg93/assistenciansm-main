@@ -32,7 +32,9 @@ const navItems = [
 ];
 
 export function AppSidebar() {
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(
+    () => localStorage.getItem("assistencia-nsm-sidebar-collapsed") === "true"
+  );
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
@@ -42,6 +44,15 @@ export function AppSidebar() {
   const handleLogout = async () => {
     await signOut();
     navigate("/");
+  };
+
+  const toggleSidebar = () => {
+    setIsCollapsed((previousValue) => {
+      const nextValue = !previousValue;
+      localStorage.setItem("assistencia-nsm-sidebar-collapsed", String(nextValue));
+      window.dispatchEvent(new Event("assistencia-nsm-sidebar-change"));
+      return nextValue;
+    });
   };
 
   // Filter nav items based on user role
@@ -149,14 +160,17 @@ export function AppSidebar() {
           </nav>
 
           {/* User Info & Logout */}
-          <div className="p-4 border-t border-sidebar-border space-y-3">
+          <div className={cn("border-t border-sidebar-border space-y-3", isCollapsed ? "p-2" : "p-4")}>
             {/* Collapse Toggle - Desktop only */}
             <div className="hidden md:block">
               <Button
                 variant="ghost"
                 size="sm"
-                className="w-full justify-start text-muted-foreground"
-                onClick={() => setIsCollapsed(!isCollapsed)}
+                className={cn(
+                  "text-muted-foreground",
+                  isCollapsed ? "mx-auto w-10 justify-center" : "w-full justify-start"
+                )}
+                onClick={toggleSidebar}
                 aria-label="Recolher ou expandir menu"
               >
                 <Menu className="h-4 w-4" />
@@ -167,7 +181,10 @@ export function AppSidebar() {
             <Button
               variant="ghost"
               size="sm"
-              className="w-full justify-start text-muted-foreground"
+              className={cn(
+                "text-muted-foreground",
+                isCollapsed ? "mx-auto w-10 justify-center" : "w-full justify-start"
+              )}
               onClick={() => setTheme(theme === "light" ? "dark" : "light")}
               aria-label={theme === "light" ? "Ativar modo noite" : "Ativar modo dia"}
             >
@@ -178,7 +195,10 @@ export function AppSidebar() {
             <Button
               variant="ghost"
               size="sm"
-              className="w-full justify-start text-muted-foreground hover:text-destructive"
+              className={cn(
+                "text-muted-foreground hover:text-destructive",
+                isCollapsed ? "mx-auto w-10 justify-center" : "w-full justify-start"
+              )}
               onClick={handleLogout}
             >
               <LogOut className="h-4 w-4" />
@@ -187,14 +207,6 @@ export function AppSidebar() {
           </div>
         </div>
       </aside>
-
-      {/* Main Content Offset */}
-      <div
-        className={cn(
-          "transition-all duration-300",
-          isCollapsed ? "md:ml-16" : "md:ml-64"
-        )}
-      />
     </>
   );
 }
