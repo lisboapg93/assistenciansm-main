@@ -88,6 +88,11 @@
     --sidebar-accent-foreground: 220 20% 10%;
     --sidebar-border: 220 14% 88%;
     --sidebar-ring: 160 84% 39%;
+
+    --gradient-dark: linear-gradient(180deg, hsl(0 0% 98%), hsl(220 14% 94%));
+    --gradient-card: linear-gradient(145deg, hsl(0 0% 100%), hsl(220 14% 97%));
+    --shadow-glow: 0 0 30px hsl(160 84% 39% / 0.14);
+    --shadow-card: 0 4px 24px hsl(220 20% 20% / 0.1);
   }
 }
 

@@ -203,7 +203,10 @@ export default function Relatorios() {
               <div className="text-2xl font-bold">
                 {statsFiltered.averageConsumption.toFixed(2)} L
               </div>
-              <Select value={averageType} onValueChange={setAverageType}>
+              <Select
+                value={averageType || "all"}
+                onValueChange={(value) => setAverageType(value === "all" ? "" : value)}
+              >
                 <SelectTrigger className="w-full mt-2 h-8 text-xs">
                   <SelectValue placeholder="Todos os tipos" />
                 </SelectTrigger>

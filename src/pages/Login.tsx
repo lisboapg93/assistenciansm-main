@@ -4,13 +4,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Droplets, Lock, Mail } from "lucide-react";
+import { Droplets, LoaderCircle, Lock, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthContext } from "@/contexts/AuthContext";
 
 export default function Login() {
   const navigate = useNavigate();
-  const { signIn, isAuthenticated, isLoading: authLoading, isAssistant, userRole } = useAuthContext();
+  const { signIn, isAuthenticated, isAssistant, userRole } = useAuthContext();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -31,25 +31,27 @@ export default function Login() {
 
     if (error) {
       toast.error("Email ou senha inválidos");
+      setIsLoading(false);
     } else {
       toast.success("Login realizado com sucesso!");
-      navigate("/dashboard");
+      // A troca de página acontece após o AuthContext confirmar o papel do usuário.
+      // Assim, não exibimos uma tela sem as permissões já carregadas.
     }
-    setIsLoading(false);
   };
 
-  // Show loading while checking auth state
-  if (authLoading) {
+  // Exibido somente após o envio do formulário de login.
+  if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/20">
+          <LoaderCircle className="h-8 w-8 animate-spin text-primary" aria-hidden="true" />
+        </div>
+        <div>
+          <p className="font-medium">Carregando</p>
+          <p className="text-sm text-muted-foreground">Preparando seu acesso...</p>
+        </div>
       </div>
     );
-  }
-
-  // Show nothing while redirecting
-  if (isAuthenticated) {
-    return null;
   }
 
   return (
@@ -74,7 +76,9 @@ export default function Login() {
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="login-email"
+                  name="email"
                   type="email"
+                  autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="seu@email.com"
@@ -89,7 +93,9 @@ export default function Login() {
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   id="login-password"
+                  name="password"
                   type="password"
+                  autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Digite sua senha"

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { useTheme } from "next-themes";
 import {
   LayoutDashboard,
   Droplets,
@@ -12,6 +13,8 @@ import {
   LogOut,
   Shield,
   Eye,
+  Moon,
+  Sun,
   Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -33,6 +36,7 @@ export function AppSidebar() {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const { theme, setTheme } = useTheme();
   const { signOut, user, userRole, isEditor, isAssistant } = useAuthContext();
 
   const handleLogout = async () => {
@@ -85,13 +89,37 @@ export function AppSidebar() {
       >
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="flex items-center gap-3 px-4 h-16 border-b border-sidebar-border">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10 text-primary">
-              <Leaf className="h-5 w-5" />
+          <div className="min-h-16 px-4 py-3 border-b border-sidebar-border">
+            <div className="flex h-10 translate-y-1 items-center justify-center gap-4">
+              <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10 text-primary">
+                <Leaf className="h-5 w-5" />
+              </div>
+              {!isCollapsed && <h1 className="text-lg font-extrabold leading-tight text-foreground">Assistência NSM</h1>}
             </div>
-            {!isCollapsed && (
-              <div className="animate-fade-in">
-                <h1 className="font-bold text-foreground">Assistência NSM</h1>
+            {!isCollapsed && user && (
+              <div className="translate-x-7 text-center animate-fade-in">
+                <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+                <Badge
+                  variant={isEditor ? "default" : isAssistant ? "outline" : "secondary"}
+                  className="mt-2 text-xs"
+                >
+                  {isEditor ? (
+                    <>
+                      <Shield className="h-3 w-3 mr-1" />
+                      Editor
+                    </>
+                  ) : isAssistant ? (
+                    <>
+                      <Calendar className="h-3 w-3 mr-1" />
+                      Assistente
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="h-3 w-3 mr-1" />
+                      Visualizador
+                    </>
+                  )}
+                </Badge>
               </div>
             )}
           </div>
@@ -122,34 +150,30 @@ export function AppSidebar() {
 
           {/* User Info & Logout */}
           <div className="p-4 border-t border-sidebar-border space-y-3">
-            {!isCollapsed && user && (
-              <div className="flex items-center gap-2 px-2">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">{user.email}</p>
-                <Badge 
-                    variant={isEditor ? "default" : isAssistant ? "outline" : "secondary"} 
-                    className="mt-1 text-xs"
-                  >
-                    {isEditor ? (
-                      <>
-                        <Shield className="h-3 w-3 mr-1" />
-                        Editor
-                      </>
-                    ) : isAssistant ? (
-                      <>
-                        <Calendar className="h-3 w-3 mr-1" />
-                        Assistente
-                      </>
-                    ) : (
-                      <>
-                        <Eye className="h-3 w-3 mr-1" />
-                        Visualizador
-                      </>
-                    )}
-                  </Badge>
-                </div>
-              </div>
-            )}
+            {/* Collapse Toggle - Desktop only */}
+            <div className="hidden md:block">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-muted-foreground"
+                onClick={() => setIsCollapsed(!isCollapsed)}
+                aria-label="Recolher ou expandir menu"
+              >
+                <Menu className="h-4 w-4" />
+                {!isCollapsed && <span className="ml-2">Recolher</span>}
+              </Button>
+            </div>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start text-muted-foreground"
+              onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+              aria-label={theme === "light" ? "Ativar modo noite" : "Ativar modo dia"}
+            >
+              {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+              {!isCollapsed && <span className="ml-2">{theme === "light" ? "Modo noite" : "Modo dia"}</span>}
+            </Button>
 
             <Button
               variant="ghost"
@@ -160,19 +184,6 @@ export function AppSidebar() {
               <LogOut className="h-4 w-4" />
               {!isCollapsed && <span className="ml-2">Sair</span>}
             </Button>
-
-            {/* Collapse Toggle - Desktop only */}
-            <div className="hidden md:block">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full justify-center"
-                onClick={() => setIsCollapsed(!isCollapsed)}
-              >
-                <Menu className="h-4 w-4" />
-                {!isCollapsed && <span className="ml-2">Recolher</span>}
-              </Button>
-            </div>
           </div>
         </div>
       </aside>
