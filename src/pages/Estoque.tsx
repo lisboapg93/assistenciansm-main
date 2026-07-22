@@ -163,55 +163,59 @@ export default function Estoque() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredVegetais?.map((vegetal) => (
-                    <TableRow
-                      key={vegetal.id}
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => setSelectedVegetal(vegetal)}
-                    >
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{vegetal.name}</p>
-                          <p className="text-sm text-muted-foreground md:hidden">
-                            {vegetal.master}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="hidden md:table-cell">
-                        {vegetal.master}
-                      </TableCell>
-                      <TableCell className="hidden md:table-cell">
-                        {format(new Date(vegetal.envase_date), "dd/MM/yyyy", {
-                          locale: ptBR,
-                        })}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <span
-                          className={
-                            vegetal.quantity <= 0
-                              ? "text-destructive"
-                              : vegetal.quantity < 2
-                              ? "text-warning"
-                              : "text-primary font-medium"
-                          }
-                        >
-                          {Number(vegetal.quantity).toFixed(2)} L
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedVegetal(vegetal);
-                          }}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {filteredVegetais?.map((vegetal) => {
+                    const isZeroQuantity = showArchived && Number(vegetal.quantity) <= 0;
+
+                    return (
+                      <TableRow
+                        key={vegetal.id}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => setSelectedVegetal(vegetal)}
+                      >
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{vegetal.name}</p>
+                            <p className="text-sm text-muted-foreground md:hidden">
+                              {vegetal.master}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          {vegetal.master}
+                        </TableCell>
+                        <TableCell className="hidden md:table-cell">
+                          {format(new Date(vegetal.envase_date), "dd/MM/yyyy", {
+                            locale: ptBR,
+                          })}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <span
+                            className={
+                              isZeroQuantity
+                                ? "font-bold text-destructive"
+                                : Number(vegetal.quantity) < 2
+                                ? "text-warning"
+                                : "text-primary font-medium"
+                            }
+                          >
+                            {Number(vegetal.quantity).toFixed(2)} L
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedVegetal(vegetal);
+                            }}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             )}

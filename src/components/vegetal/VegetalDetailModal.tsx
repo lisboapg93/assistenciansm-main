@@ -53,6 +53,11 @@ export function VegetalDetailModal({
 
   if (!vegetal) return null;
 
+  const availableQuantity = Number(vegetal.quantity);
+  const requestedQuantity = Number.parseFloat(saidaQtd);
+  const exceedsAvailableQuantity =
+    saidaQtd !== "" && Number.isFinite(requestedQuantity) && requestedQuantity > availableQuantity;
+
   const handleSaida = () => {
     const qtd = parseFloat(saidaQtd);
     if (isNaN(qtd) || qtd <= 0) return;
@@ -115,7 +120,7 @@ export function VegetalDetailModal({
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Droplets className="h-5 w-5 text-primary" />
@@ -179,10 +184,19 @@ export function VegetalDetailModal({
                   step="0.01"
                   min="0"
                   max={vegetal.quantity}
+                  inputMode="decimal"
                   value={saidaQtd}
                   onChange={(e) => setSaidaQtd(e.target.value)}
                   placeholder="Ex: 1.5"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Disponível: {availableQuantity.toFixed(2)} L
+                </p>
+                {exceedsAvailableQuantity && (
+                  <p className="text-xs text-destructive" role="alert">
+                    A quantidade informada é maior que o saldo disponível.
+                  </p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label>Motivo</Label>
@@ -205,7 +219,12 @@ export function VegetalDetailModal({
                   <Button
                     variant="destructive"
                     className="w-full"
-                    disabled={!saidaQtd || parseFloat(saidaQtd) > vegetal.quantity}
+                    disabled={
+                      !saidaQtd ||
+                      !Number.isFinite(requestedQuantity) ||
+                      requestedQuantity <= 0 ||
+                      exceedsAvailableQuantity
+                    }
                   >
                     Registrar Saída
                   </Button>
@@ -280,7 +299,7 @@ export function VegetalDetailModal({
           )}
 
           <TabsContent value="historico" className="mt-4">
-            <div className="max-h-60 overflow-y-auto space-y-2">
+            <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
               {movements?.length === 0 ? (
                 <p className="text-center text-muted-foreground py-4">
                   Nenhuma movimentação registrada
@@ -289,9 +308,9 @@ export function VegetalDetailModal({
                 movements?.map((m) => (
                   <div
                     key={m.id}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-muted/50"
+                    className="flex items-start gap-3 p-3 rounded-lg bg-muted/50"
                   >
-                    {getMovementIcon(m.type)}
+                    <span className="mt-0.5 shrink-0">{getMovementIcon(m.type)}</span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-medium">{m.type}</p>
@@ -299,12 +318,12 @@ export function VegetalDetailModal({
                           {format(new Date(m.date), "dd/MM/yy HH:mm")}
                         </p>
                       </div>
-                      <p className="text-xs text-muted-foreground truncate">
+                      <p className="text-xs text-muted-foreground break-words">
                         {m.details}
                       </p>
                     </div>
                     <p
-                      className={`text-sm font-medium ${
+                      className={`shrink-0 text-sm font-medium ${
                         m.type === "Entrada" || m.type === "Saldo"
                           ? "text-primary"
                           : "text-destructive"
