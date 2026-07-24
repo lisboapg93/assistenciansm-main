@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import { useSessions } from "@/hooks/useSessions";
 import { useStatistics } from "@/hooks/useStatistics";
+import { useTotalStock } from "@/hooks/useVegetais";
 import { useStockMovements } from "@/hooks/useStockMovements";
 import { SESSION_TYPES, MovementType } from "@/types/database";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -83,6 +84,7 @@ export default function Relatorios() {
   const { data: sessions, isLoading } = useSessions({ year });
   const stats = useStatistics(sessions);
   const statsFiltered = useStatistics(sessions, { type: averageType || undefined });
+  const currentStock = useTotalStock();
   const { data: movements, isLoading: isLoadingMovements } = useStockMovements();
 
   // Prepare chart data
@@ -153,7 +155,7 @@ export default function Relatorios() {
       }
     });
 
-    return Object.keys(monthlyData).sort().map((key) => {
+    const evolution = Object.keys(monthlyData).sort().map((key) => {
       const data = monthlyData[key];
       accumulatedBalance += data.entrada - data.saida - data.consumo;
       return {
@@ -164,7 +166,15 @@ export default function Relatorios() {
         saldo: Number(Math.max(0, accumulatedBalance).toFixed(2)),
       };
     });
-  }, [movements, year]);
+
+    // The current balance must come from the current stock table. The movement
+    // ledger is historical and can differ when older entries were corrected.
+    if (year === currentYear && evolution.length > 0) {
+      evolution[evolution.length - 1].saldo = Number(currentStock.toFixed(2));
+    }
+
+    return evolution;
+  }, [movements, year, currentStock]);
 
   const assistanceReport = useMemo(() => {
     const grouped: Record<string, { type: string; sessions: number; consumption: number; members: number }> = {};
