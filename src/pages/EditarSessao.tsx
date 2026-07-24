@@ -25,6 +25,15 @@ import { useMembers, addMemberIfNotExists } from "@/hooks/useMembers";
 import { SESSION_TYPES, TYPES_WITH_EXPLANADOR_LEITOR, PARTICIPANT_LABELS, Participants } from "@/types/database";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  getDirigenteRuleDescription,
+  getEligibleDirigentes,
+  getSessionRoleValidationError,
+  isEligibleDirigente,
+  isEligibleExplanador,
+  isEligibleMestreAssistente,
+} from "@/lib/sessionRoleEligibility";
+import { cn } from "@/lib/utils";
 
 export default function EditarSessao() {
   const navigate = useNavigate();
@@ -43,8 +52,6 @@ export default function EditarSessao() {
   });
 
   const [contentData, setContentData] = useState({
-    chamadas: "",
-    historias: "",
     has_photo: false,
     has_audio: false,
     observation: "",
@@ -71,8 +78,6 @@ export default function EditarSessao() {
         mestre_assistente: session.mestre_assistente || "",
       });
       setContentData({
-        chamadas: session.chamadas || "",
-        historias: session.historias || "",
         has_photo: session.has_photo,
         has_audio: session.has_audio,
         observation: session.observation || "",
@@ -84,6 +89,12 @@ export default function EditarSessao() {
   const showExplanadorLeitor = TYPES_WITH_EXPLANADOR_LEITOR.includes(basicData.type);
   const totalParticipants = Object.values(participants).reduce((a, b) => a + b, 0);
   const memberNames = members?.map((m) => m.name) || [];
+  const eligibleDirigentes = getEligibleDirigentes(basicData.type, members || []);
+  const eligibleExplanadores = members?.filter((member) => member.grau !== "Quadro de Sócios") || [];
+  const mestresAssistentes = members?.filter((member) => member.grau === "Quadro de Mestre") || [];
+  const dirigenteInvalido = !isEligibleDirigente(basicData.type, basicData.dirigente, members || []);
+  const mestreAssistenteInvalido = !isEligibleMestreAssistente(basicData.mestre_assistente, members || []);
+  const explanadorInvalido = !isEligibleExplanador(basicData.explanador, members || []);
 
   const handleSubmit = async () => {
     if (!id) return;
@@ -95,6 +106,19 @@ export default function EditarSessao() {
 
     if (showExplanadorLeitor && (!basicData.explanador || !basicData.leitor)) {
       toast.error("Explanador e Leitor são obrigatórios para este tipo de sessão");
+      return;
+    }
+
+    const roleValidationError = getSessionRoleValidationError({
+      type: basicData.type,
+      dirigente: basicData.dirigente,
+      explanador: showExplanadorLeitor ? basicData.explanador : undefined,
+      leitor: showExplanadorLeitor ? basicData.leitor : undefined,
+      mestreAssistente: basicData.mestre_assistente,
+      members: members || [],
+    });
+    if (roleValidationError) {
+      toast.error(roleValidationError);
       return;
     }
 
@@ -117,8 +141,6 @@ export default function EditarSessao() {
       explanador: showExplanadorLeitor ? basicData.explanador : null,
       leitor: showExplanadorLeitor ? basicData.leitor : null,
       mestre_assistente: basicData.mestre_assistente,
-      chamadas: contentData.chamadas || null,
-      historias: contentData.historias || null,
       has_photo: contentData.has_photo,
       has_audio: contentData.has_audio,
       observation: contentData.observation || null,
@@ -226,26 +248,32 @@ export default function EditarSessao() {
                   Dirigente <span className="text-destructive">*</span>
                 </Label>
                 <Input
-                  list="members-list"
+                  list="eligible-dirigentes-list"
                   value={basicData.dirigente}
                   onChange={(e) =>
                     setBasicData({ ...basicData, dirigente: e.target.value })
                   }
                   placeholder="Nome do dirigente"
+                  aria-invalid={dirigenteInvalido}
+                  className={cn(dirigenteInvalido && "border-destructive focus-visible:ring-destructive")}
                 />
+                <p className="text-xs text-muted-foreground">{getDirigenteRuleDescription(basicData.type)}</p>
               </div>
               <div className="space-y-2">
                 <Label>
                   Mestre Assistente <span className="text-destructive">*</span>
                 </Label>
                 <Input
-                  list="members-list"
+                  list="mestres-assistentes-list"
                   value={basicData.mestre_assistente}
                   onChange={(e) =>
                     setBasicData({ ...basicData, mestre_assistente: e.target.value })
                   }
                   placeholder="Nome do mestre assistente"
+                  aria-invalid={mestreAssistenteInvalido}
+                  className={cn(mestreAssistenteInvalido && "border-destructive focus-visible:ring-destructive")}
                 />
+                <p className="text-xs text-muted-foreground">Apenas membros do Quadro de Mestres.</p>
               </div>
             </div>
 
@@ -256,12 +284,14 @@ export default function EditarSessao() {
                     Explanador <span className="text-destructive">*</span>
                   </Label>
                   <Input
-                    list="members-list"
+                    list="eligible-explanadores-list"
                     value={basicData.explanador}
                     onChange={(e) =>
                       setBasicData({ ...basicData, explanador: e.target.value })
                     }
                     placeholder="Nome do explanador"
+                    aria-invalid={explanadorInvalido}
+                    className={cn(explanadorInvalido && "border-destructive focus-visible:ring-destructive")}
                   />
                 </div>
                 <div className="space-y-2">
@@ -285,6 +315,21 @@ export default function EditarSessao() {
                 <option key={name} value={name} />
               ))}
             </datalist>
+            <datalist id="eligible-dirigentes-list">
+              {eligibleDirigentes.map((member) => (
+                <option key={member.id} value={member.name} />
+              ))}
+            </datalist>
+            <datalist id="eligible-explanadores-list">
+              {eligibleExplanadores.map((member) => (
+                <option key={member.id} value={member.name} />
+              ))}
+            </datalist>
+            <datalist id="mestres-assistentes-list">
+              {mestresAssistentes.map((member) => (
+                <option key={member.id} value={member.name} />
+              ))}
+            </datalist>
           </CardContent>
         </Card>
 
@@ -294,28 +339,6 @@ export default function EditarSessao() {
             <CardTitle>Conteúdo</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label>Chamadas</Label>
-              <Textarea
-                value={contentData.chamadas}
-                onChange={(e) =>
-                  setContentData({ ...contentData, chamadas: e.target.value })
-                }
-                placeholder="Chamadas realizadas..."
-                rows={3}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Histórias</Label>
-              <Textarea
-                value={contentData.historias}
-                onChange={(e) =>
-                  setContentData({ ...contentData, historias: e.target.value })
-                }
-                placeholder="Histórias contadas..."
-                rows={3}
-              />
-            </div>
             <div className="flex flex-wrap gap-6">
               <div className="flex items-center gap-2">
                 <Checkbox

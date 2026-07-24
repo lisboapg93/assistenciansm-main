@@ -52,8 +52,6 @@ interface ParsedSession {
   is_united: boolean;
   has_photo: boolean;
   has_audio: boolean;
-  chamadas?: string;
-  historias?: string;
   observation?: string;
   isValid: boolean;
   errors: string[];
@@ -76,8 +74,6 @@ const CSV_TEMPLATE_HEADERS = [
   "vegetal_unido",
   "tem_foto",
   "tem_audio",
-  "chamadas",
-  "historias",
   "observacao",
 ];
 
@@ -123,8 +119,6 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       "false",
       "true",
       "false",
-      "Chamadas realizadas",
-      "Histórias contadas",
       "Observações da sessão",
     ].join(delimiter);
 
@@ -212,8 +206,6 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       is_united: parseBoolean(row.vegetal_unido),
       has_photo: parseBoolean(row.tem_foto),
       has_audio: parseBoolean(row.tem_audio),
-      chamadas: row.chamadas?.trim() || undefined,
-      historias: row.historias?.trim() || undefined,
       observation: row.observacao?.trim() || undefined,
       isValid: errors.length === 0,
       errors,
@@ -300,8 +292,6 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       "vegetal_unido",
       "tem_foto",
       "tem_audio",
-      "chamadas",
-      "historias",
       "observacao",
     ] as const;
 
@@ -322,8 +312,6 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       vegetal_unido: ["vegetal_unido", "unido", "is_united", "vegetal_e_unido"],
       tem_foto: ["tem_foto", "foto", "has_photo", "registro_fotografico", "registro_foto", "fotografico"],
       tem_audio: ["tem_audio", "audio", "has_audio", "registro_audio", "gravacao"],
-      chamadas: ["chamadas", "chamada"],
-      historias: ["historias", "historia", "historia_contada"],
       observacao: ["observacao", "observacao_sessao", "observation", "acontecimento", "acontecimentos", "obs", "observacoes", "acontecimento_na_sessao"],
     };
 
@@ -472,8 +460,6 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
           consumption: JSON.parse(JSON.stringify(consumption)),
           has_photo: session.has_photo,
           has_audio: session.has_audio,
-          chamadas: session.chamadas || null,
-          historias: session.historias || null,
           observation: session.observation || null,
         });
 
@@ -605,7 +591,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
                 <AlertDescription>
                   <p className="font-medium mb-2">Formato esperado do CSV:</p>
                   <p className="text-sm text-muted-foreground mb-2">
-                    O arquivo deve conter as colunas: data, tipo, dirigente, mestre_assistente, explanador, leitor, mestres, conselheiros, instrutivo, socios, visitantes, jovens, consumo_total, vegetal_unido, tem_foto, tem_audio, chamadas, historias, observacao
+                    O arquivo deve conter as colunas: data, tipo, dirigente, mestre_assistente, explanador, leitor, mestres, conselheiros, instrutivo, socios, visitantes, jovens, consumo_total, vegetal_unido, tem_foto, tem_audio, observacao
                   </p>
                   <Button variant="outline" size="sm" onClick={downloadTemplate} className="gap-2">
                     <Download className="h-4 w-4" />
@@ -668,7 +654,6 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
                       <TableHead>Consumo</TableHead>
                       <TableHead>Foto</TableHead>
                       <TableHead>Áudio</TableHead>
-                      <TableHead>Chamadas</TableHead>
                       <TableHead>Erros</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -706,9 +691,6 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
                           ) : (
                             <span className="text-muted-foreground">-</span>
                           )}
-                        </TableCell>
-                        <TableCell className="max-w-[150px] truncate" title={session.chamadas}>
-                          {session.chamadas || "-"}
                         </TableCell>
                         <TableCell>
                           {session.errors.length > 0 && (

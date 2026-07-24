@@ -414,7 +414,7 @@ export default function Historico() {
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2">
                   <Calendar className="h-5 w-5 text-primary" />
-                  Detalhes da Sessão
+                  Detalhes da Sessão ({selectedSession.type})
                 </DialogTitle>
               </DialogHeader>
 
@@ -431,7 +431,9 @@ export default function Historico() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Tipo</p>
-                    <Badge variant="secondary">{selectedSession.type}</Badge>
+                    <Badge variant="secondary" className="text-base font-semibold">
+                      {selectedSession.type}
+                    </Badge>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Dirigente</p>
@@ -533,23 +535,6 @@ export default function Historico() {
                   )}
                 </div>
 
-                {/* Content */}
-                {selectedSession.chamadas && (
-                  <div>
-                    <h4 className="text-sm font-medium mb-1">Chamadas</h4>
-                    <p className="text-sm text-muted-foreground">
-                      {selectedSession.chamadas}
-                    </p>
-                  </div>
-                )}
-                {selectedSession.historias && (
-                  <div>
-                    <h4 className="text-sm font-medium mb-1">Histórias</h4>
-                    <p className="text-sm text-muted-foreground">
-                      {selectedSession.historias}
-                    </p>
-                  </div>
-                )}
                 {selectedSession.observation && (
                   <div>
                     <h4 className="text-sm font-medium mb-1">Acontecimento na Sessão</h4>

@@ -50,8 +50,6 @@ export interface Session {
   participants: Participants;
   total_participants: number;
   consumption: Consumption;
-  chamadas: string | null;
-  historias: string | null;
   has_photo: boolean;
   has_audio: boolean;
   registered_by: string | null;

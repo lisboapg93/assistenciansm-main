@@ -23,17 +23,22 @@ import {
   Droplets,
   Save,
   Check,
-  Plus,
-  X,
 } from "lucide-react";
 import { useCreateSession } from "@/hooks/useSessions";
 import { useVegetais } from "@/hooks/useVegetais";
 import { useMembers, addMemberIfNotExists } from "@/hooks/useMembers";
 import { SESSION_TYPES, TYPES_WITH_EXPLANADOR_LEITOR, PARTICIPANT_LABELS, Participants, ConsumptionSource } from "@/types/database";
-import { CHAMADAS_LIST } from "@/constants/chamadas";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  getDirigenteRuleDescription,
+  getEligibleDirigentes,
+  getSessionRoleValidationError,
+  isEligibleDirigente,
+  isEligibleExplanador,
+  isEligibleMestreAssistente,
+} from "@/lib/sessionRoleEligibility";
 
 const STEPS = [
   { id: 1, title: "Dados Básicos", icon: Calendar },
@@ -66,34 +71,33 @@ export default function NovaSessao() {
     mestre_assistente: "",
   });
 
+  const eligibleDirigentes = getEligibleDirigentes(
+    basicData.type,
+    members || [],
+    basicData.is_transmissao_assistencia,
+  );
+  const eligibleExplanadores = members?.filter((member) => member.grau !== "Quadro de Sócios") || [];
+  const mestresAssistentes = members?.filter((member) => member.grau === "Quadro de Mestre") || [];
+  const dirigenteInvalido = !isEligibleDirigente(
+    basicData.type,
+    basicData.dirigente,
+    members || [],
+    basicData.is_transmissao_assistencia,
+  );
+  const segundoDirigenteInvalido = !isEligibleDirigente(
+    basicData.type,
+    basicData.segundo_dirigente,
+    members || [],
+    basicData.is_transmissao_assistencia,
+  );
+  const mestreAssistenteInvalido = !isEligibleMestreAssistente(basicData.mestre_assistente, members || []);
+  const explanadorInvalido = !isEligibleExplanador(basicData.explanador, members || []);
+
   const [contentData, setContentData] = useState({
-    chamadas: [] as { chamada: string; responsavel: string }[],
-    historias: "",
     has_photo: false,
     has_audio: false,
     observation: "",
   });
-
-  // Helper to add a chamada entry
-  const addChamadaEntry = () => {
-    setContentData({
-      ...contentData,
-      chamadas: [...contentData.chamadas, { chamada: "", responsavel: "" }],
-    });
-  };
-
-  const updateChamadaEntry = (index: number, field: "chamada" | "responsavel", value: string) => {
-    const updated = [...contentData.chamadas];
-    updated[index] = { ...updated[index], [field]: value };
-    setContentData({ ...contentData, chamadas: updated });
-  };
-
-  const removeChamadaEntry = (index: number) => {
-    setContentData({
-      ...contentData,
-      chamadas: contentData.chamadas.filter((_, i) => i !== index),
-    });
-  };
 
   const [participants, setParticipants] = useState<Participants>({
     mestres: 0,
@@ -168,6 +172,21 @@ export default function NovaSessao() {
       return;
     }
 
+    const roleValidationError = getSessionRoleValidationError({
+      type: basicData.type,
+      dirigente: basicData.dirigente,
+      segundoDirigente: basicData.is_transmissao_assistencia ? basicData.segundo_dirigente : undefined,
+      explanador: showExplanadorLeitor ? basicData.explanador : undefined,
+      leitor: showExplanadorLeitor ? basicData.leitor : undefined,
+      mestreAssistente: basicData.mestre_assistente,
+      onlyQuadroDeMestre: basicData.is_transmissao_assistencia,
+      members: members || [],
+    });
+    if (roleValidationError) {
+      toast.error(roleValidationError);
+      return;
+    }
+
     if (consumptionData.sources.length === 0) {
       toast.error("Selecione pelo menos um vegetal");
       return;
@@ -217,10 +236,6 @@ export default function NovaSessao() {
         explanador: showExplanadorLeitor ? basicData.explanador : null,
         leitor: showExplanadorLeitor ? basicData.leitor : null,
         mestre_assistente: basicData.mestre_assistente || null,
-        chamadas: contentData.chamadas.length > 0 
-          ? contentData.chamadas.map(c => `${c.chamada} - ${c.responsavel}`).join("; ") 
-          : null,
-        historias: contentData.historias || null,
         has_photo: contentData.has_photo,
         has_audio: contentData.has_audio,
         observation: fullObservation || null,
@@ -337,7 +352,16 @@ export default function NovaSessao() {
         if (!basicData.type || !basicData.dirigente || !basicData.date || !basicData.mestre_assistente) return false;
         if (showExplanadorLeitor && (!basicData.explanador || !basicData.leitor)) return false;
         if (basicData.is_transmissao_assistencia && !basicData.segundo_dirigente) return false;
-        return true;
+        return !getSessionRoleValidationError({
+          type: basicData.type,
+          dirigente: basicData.dirigente,
+          segundoDirigente: basicData.is_transmissao_assistencia ? basicData.segundo_dirigente : undefined,
+          explanador: showExplanadorLeitor ? basicData.explanador : undefined,
+          leitor: showExplanadorLeitor ? basicData.leitor : undefined,
+          mestreAssistente: basicData.mestre_assistente,
+          onlyQuadroDeMestre: basicData.is_transmissao_assistencia,
+          members: members || [],
+        });
       case 2:
         return true;
       case 3:
@@ -479,13 +503,18 @@ export default function NovaSessao() {
                       Dirigente <span className="text-destructive">*</span>
                     </Label>
                     <Input
-                      list="members-list"
+                      list="eligible-dirigentes-list"
                       value={basicData.dirigente}
                       onChange={(e) =>
                         setBasicData({ ...basicData, dirigente: e.target.value })
                       }
                       placeholder="Nome do dirigente"
+                      aria-invalid={dirigenteInvalido}
+                      className={cn(dirigenteInvalido && "border-destructive focus-visible:ring-destructive")}
                     />
+                    <p className="text-xs text-muted-foreground">
+                      {getDirigenteRuleDescription(basicData.type, basicData.is_transmissao_assistencia)}
+                    </p>
                   </div>
 
                   {basicData.is_transmissao_assistencia && (
@@ -494,13 +523,18 @@ export default function NovaSessao() {
                         Segundo Dirigente <span className="text-destructive">*</span>
                       </Label>
                       <Input
-                        list="members-list"
+                        list="eligible-dirigentes-list"
                         value={basicData.segundo_dirigente}
                         onChange={(e) =>
                           setBasicData({ ...basicData, segundo_dirigente: e.target.value })
                         }
                         placeholder="Nome do segundo dirigente"
+                        aria-invalid={segundoDirigenteInvalido}
+                        className={cn(segundoDirigenteInvalido && "border-destructive focus-visible:ring-destructive")}
                       />
+                      <p className="text-xs text-muted-foreground">
+                        {getDirigenteRuleDescription(basicData.type, basicData.is_transmissao_assistencia)}
+                      </p>
                     </div>
                   )}
 
@@ -509,7 +543,7 @@ export default function NovaSessao() {
                       Mestre Assistente <span className="text-destructive">*</span>
                     </Label>
                     <Input
-                      list="members-list"
+                      list="mestres-assistentes-list"
                       value={basicData.mestre_assistente}
                       onChange={(e) =>
                         setBasicData({
@@ -518,7 +552,10 @@ export default function NovaSessao() {
                         })
                       }
                       placeholder="Nome do mestre assistente"
+                      aria-invalid={mestreAssistenteInvalido}
+                      className={cn(mestreAssistenteInvalido && "border-destructive focus-visible:ring-destructive")}
                     />
+                    <p className="text-xs text-muted-foreground">Apenas membros do Quadro de Mestres.</p>
                   </div>
                 </div>
 
@@ -529,12 +566,14 @@ export default function NovaSessao() {
                         Explanador <span className="text-destructive">*</span>
                       </Label>
                       <Input
-                        list="members-list"
+                        list="eligible-explanadores-list"
                         value={basicData.explanador}
                         onChange={(e) =>
                           setBasicData({ ...basicData, explanador: e.target.value })
-                        }
-                        placeholder="Nome do explanador"
+                      }
+                      placeholder="Nome do explanador"
+                      aria-invalid={explanadorInvalido}
+                      className={cn(explanadorInvalido && "border-destructive focus-visible:ring-destructive")}
                       />
                     </div>
                     <div className="space-y-2">
@@ -559,76 +598,6 @@ export default function NovaSessao() {
             {/* Step 2: Content */}
             {currentStep === 2 && (
               <div className="space-y-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label>Chamadas</Label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={addChamadaEntry}
-                    >
-                      <Plus className="h-4 w-4 mr-1" />
-                      Adicionar Chamada
-                    </Button>
-                  </div>
-                  
-                  {contentData.chamadas.length === 0 && (
-                    <p className="text-sm text-muted-foreground">
-                      Nenhuma chamada adicionada. Clique em "Adicionar Chamada" para incluir.
-                    </p>
-                  )}
-
-                  <div className="space-y-3">
-                    {contentData.chamadas.map((entry, index) => (
-                      <div key={index} className="flex gap-2 items-start p-3 rounded-lg border bg-muted/30">
-                        <div className="flex-1 space-y-2">
-                          <Select
-                            value={entry.chamada}
-                            onValueChange={(value) => updateChamadaEntry(index, "chamada", value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="Selecione a chamada..." />
-                            </SelectTrigger>
-                            <SelectContent className="max-h-60">
-                              {CHAMADAS_LIST.map((chamada) => (
-                                <SelectItem key={chamada} value={chamada}>
-                                  {chamada}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                          <Input
-                            list="members-list"
-                            value={entry.responsavel}
-                            onChange={(e) => updateChamadaEntry(index, "responsavel", e.target.value)}
-                            placeholder="Quem fez a chamada..."
-                          />
-                        </div>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => removeChamadaEntry(index)}
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Histórias</Label>
-                  <Textarea
-                    value={contentData.historias}
-                    onChange={(e) =>
-                      setContentData({ ...contentData, historias: e.target.value })
-                    }
-                    placeholder="Histórias contadas..."
-                    rows={3}
-                  />
-                </div>
                 <div className="flex flex-wrap gap-6">
                   <div className="flex items-center gap-2">
                     <Checkbox
@@ -856,6 +825,21 @@ export default function NovaSessao() {
         <datalist id="members-list">
           {memberNames.map((name) => (
             <option key={name} value={name} />
+          ))}
+        </datalist>
+        <datalist id="eligible-dirigentes-list">
+          {eligibleDirigentes.map((member) => (
+            <option key={member.id} value={member.name} />
+          ))}
+        </datalist>
+        <datalist id="eligible-explanadores-list">
+          {eligibleExplanadores.map((member) => (
+            <option key={member.id} value={member.name} />
+          ))}
+        </datalist>
+        <datalist id="mestres-assistentes-list">
+          {mestresAssistentes.map((member) => (
+            <option key={member.id} value={member.name} />
           ))}
         </datalist>
 

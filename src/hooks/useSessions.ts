@@ -47,7 +47,7 @@ export function useSessions(filters?: SessionFilters) {
 
       if (filters?.search) {
         query = query.or(
-          `dirigente.ilike.%${filters.search}%,explanador.ilike.%${filters.search}%,leitor.ilike.%${filters.search}%,mestre_assistente.ilike.%${filters.search}%,type.ilike.%${filters.search}%,observation.ilike.%${filters.search}%,chamadas.ilike.%${filters.search}%,historias.ilike.%${filters.search}%`
+          `dirigente.ilike.%${filters.search}%,explanador.ilike.%${filters.search}%,leitor.ilike.%${filters.search}%,mestre_assistente.ilike.%${filters.search}%,type.ilike.%${filters.search}%,observation.ilike.%${filters.search}%`
         );
       }
 

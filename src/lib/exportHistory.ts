@@ -11,7 +11,7 @@ export async function exportHistoryToXlsx(sessions: Session[]) {
     "Data", "Tipo", "Dirigente", "Mestre assistente", "Explanador", "Leitor",
     "Mestres", "Conselheiros", "Instrutivo", "Sócios", "Visitantes", "Jovens",
     "Total de participantes", "Consumo total (L)", "Vegetal unido", "Tem foto",
-    "Tem áudio", "Chamadas", "Histórias", "Observação",
+    "Tem áudio", "Observação",
   ];
   const headerRow = (headers: string[]) =>
     headers.map((value) => ({ value, fontWeight: "bold" as const, backgroundColor: "#DDEFE8" }));
@@ -34,8 +34,6 @@ export async function exportHistoryToXlsx(sessions: Session[]) {
     yesNo(session.consumption?.is_united || false),
     yesNo(session.has_photo),
     yesNo(session.has_audio),
-    session.chamadas || "",
-    session.historias || "",
     session.observation || "",
   ].map((value) => ({ value })));
 
