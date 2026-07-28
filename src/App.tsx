@@ -4,17 +4,19 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
+import { lazy, Suspense } from "react";
 import { AuthProvider, useAuthContext } from "@/contexts/AuthContext";
 import Login from "./pages/Login";
-import Dashboard from "./pages/Dashboard";
-import Estoque from "./pages/Estoque";
-import NovaEntrada from "./pages/NovaEntrada";
-import NovaSessao from "./pages/NovaSessao";
-import EditarSessao from "./pages/EditarSessao";
-import Historico from "./pages/Historico";
-import Relatorios from "./pages/Relatorios";
-import Membros from "./pages/Membros";
-import NotFound from "./pages/NotFound";
+
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Estoque = lazy(() => import("./pages/Estoque"));
+const NovaEntrada = lazy(() => import("./pages/NovaEntrada"));
+const NovaSessao = lazy(() => import("./pages/NovaSessao"));
+const EditarSessao = lazy(() => import("./pages/EditarSessao"));
+const Historico = lazy(() => import("./pages/Historico"));
+const Relatorios = lazy(() => import("./pages/Relatorios"));
+const Membros = lazy(() => import("./pages/Membros"));
+const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
@@ -58,18 +60,26 @@ function ProtectedRoute({
 
 function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/" element={<Login />} />
-      <Route path="/dashboard" element={<ProtectedRoute denyAssistant><Dashboard /></ProtectedRoute>} />
-      <Route path="/estoque" element={<ProtectedRoute><Estoque /></ProtectedRoute>} />
-      <Route path="/estoque/novo" element={<ProtectedRoute requiresEditor><NovaEntrada /></ProtectedRoute>} />
-      <Route path="/sessao/nova" element={<ProtectedRoute requiresEditor allowAssistant><NovaSessao /></ProtectedRoute>} />
-      <Route path="/sessao/editar/:id" element={<ProtectedRoute requiresEditor><EditarSessao /></ProtectedRoute>} />
-      <Route path="/historico" element={<ProtectedRoute denyAssistant><Historico /></ProtectedRoute>} />
-      <Route path="/relatorios" element={<ProtectedRoute denyAssistant><Relatorios /></ProtectedRoute>} />
-      <Route path="/membros" element={<ProtectedRoute requiresEditor><Membros /></ProtectedRoute>} />
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-background">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+        </div>
+      }
+    >
+      <Routes>
+        <Route path="/" element={<Login />} />
+        <Route path="/dashboard" element={<ProtectedRoute denyAssistant><Dashboard /></ProtectedRoute>} />
+        <Route path="/estoque" element={<ProtectedRoute><Estoque /></ProtectedRoute>} />
+        <Route path="/estoque/novo" element={<ProtectedRoute requiresEditor><NovaEntrada /></ProtectedRoute>} />
+        <Route path="/sessao/nova" element={<ProtectedRoute requiresEditor allowAssistant><NovaSessao /></ProtectedRoute>} />
+        <Route path="/sessao/editar/:id" element={<ProtectedRoute requiresEditor><EditarSessao /></ProtectedRoute>} />
+        <Route path="/historico" element={<ProtectedRoute denyAssistant><Historico /></ProtectedRoute>} />
+        <Route path="/relatorios" element={<ProtectedRoute denyAssistant><Relatorios /></ProtectedRoute>} />
+        <Route path="/membros" element={<ProtectedRoute requiresEditor><Membros /></ProtectedRoute>} />
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </Suspense>
   );
 }
 

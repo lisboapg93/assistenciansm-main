@@ -24,13 +24,13 @@ import {
   Save,
   Check,
 } from "lucide-react";
-import { useCreateSession } from "@/hooks/useSessions";
 import { useVegetais } from "@/hooks/useVegetais";
-import { useMembers, addMemberIfNotExists } from "@/hooks/useMembers";
+import { useMembers } from "@/hooks/useMembers";
 import { SESSION_TYPES, TYPES_WITH_EXPLANADOR_LEITOR, PARTICIPANT_LABELS, Participants, ConsumptionSource } from "@/types/database";
-import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { registerSessionWithConsumption } from "@/lib/sessionRegistration";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   getDirigenteRuleDescription,
   getEligibleDirigentes,
@@ -49,6 +49,7 @@ const STEPS = [
 
 export default function NovaSessao() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [currentStep, setCurrentStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submittingRef = useRef(false);
@@ -192,6 +193,11 @@ export default function NovaSessao() {
       return;
     }
 
+    if (!consumptionData.is_united && consumptionData.sources.length !== 1) {
+      toast.error("Selecione apenas um vegetal quando não houver união");
+      return;
+    }
+
     if (isNaN(totalConsumed) || totalConsumed <= 0) {
       toast.error("Informe o total consumido");
       return;
@@ -205,7 +211,6 @@ export default function NovaSessao() {
     try {
       submittingRef.current = true;
       setIsSubmitting(true);
-      // Add members for autocomplete
       const namesToAdd = [
         basicData.dirigente,
         basicData.segundo_dirigente,
@@ -215,11 +220,6 @@ export default function NovaSessao() {
         consumptionData.registered_by,
       ].filter(Boolean);
 
-      for (const name of namesToAdd) {
-        await addMemberIfNotExists(name);
-      }
-
-      // Create session
       // Build observation with transmissão info
       let fullObservation = contentData.observation || "";
       if (basicData.is_transmissao_assistencia) {
@@ -239,107 +239,34 @@ export default function NovaSessao() {
         has_photo: contentData.has_photo,
         has_audio: contentData.has_audio,
         observation: fullObservation || null,
-        participants: participants as any,
+        participants,
         total_participants: totalParticipants,
-        consumption: {
-          total_consumed: totalConsumed,
-          is_united: consumptionData.is_united,
-          sources: consumptionData.sources,
-          registered_by: consumptionData.registered_by || null,
-        } as any,
+        total_consumed: totalConsumed,
+        is_united: consumptionData.is_united,
       };
 
-      const { data: session, error: sessionError } = await supabase
-        .from("session")
-        .insert(sessionData)
-        .select()
-        .single();
-
-      if (sessionError) {
-        if (sessionError.code === "23505") {
+      try {
+        await registerSessionWithConsumption(sessionData, consumptionData.sources, namesToAdd);
+      } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
           toast.warning("Esta sessão já foi registrada. Não foi criada uma nova duplicata.");
           navigate("/historico");
           return;
         }
-
-        throw sessionError;
+        throw error;
       }
 
-      // Process stock based on is_united flag
-      if (!consumptionData.is_united) {
-        // Simple: discount from single source
-        const source = consumptionData.sources[0];
-        const vegetal = vegetais?.find((v) => v.id === source.vegetal_id);
-        if (vegetal) {
-          const newQty = Number(vegetal.quantity) - totalConsumed;
-          await supabase
-            .from("vegetal")
-            .update({ quantity: newQty })
-            .eq("id", source.vegetal_id);
-
-          await supabase.from("stock_movement").insert({
-            type: "Consumo",
-            quantity: totalConsumed,
-            vegetal_id: source.vegetal_id,
-            session_id: session.id,
-            details: `Consumo em sessão: ${basicData.type}`,
-          });
-        }
-      } else {
-        // United: discount from all sources and create balance
-        const saldoRestante = totalAvailable - totalConsumed;
-
-        for (const source of consumptionData.sources) {
-          const vegetal = vegetais?.find((v) => v.id === source.vegetal_id);
-          if (vegetal) {
-            const newQty = Number(vegetal.quantity) - source.amount_available;
-            await supabase
-              .from("vegetal")
-              .update({ quantity: newQty })
-              .eq("id", source.vegetal_id);
-
-            await supabase.from("stock_movement").insert({
-              type: "Consumo",
-              quantity: source.amount_available,
-              vegetal_id: source.vegetal_id,
-              session_id: session.id,
-              details: `Vegetal unido para sessão: ${basicData.type}`,
-            });
-          }
-        }
-
-        // Create balance vegetal if there's remaining
-        if (saldoRestante > 0) {
-          const dateStr = new Date().toISOString().slice(0, 10);
-          const { data: newVegetal, error: newVegetalError } = await supabase
-            .from("vegetal")
-            .insert({
-              name: `Saldo ${dateStr} - ${basicData.type}`,
-              quantity: saldoRestante,
-              initial_quantity: saldoRestante,
-              envase_date: dateStr,
-              master: "União",
-              is_archived: false,
-            })
-            .select()
-            .single();
-
-          if (!newVegetalError && newVegetal) {
-            await supabase.from("stock_movement").insert({
-              type: "Saldo",
-              quantity: saldoRestante,
-              vegetal_id: newVegetal.id,
-              session_id: session.id,
-              details: `Saldo do vegetal unido`,
-            });
-          }
-        }
-      }
-
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["sessions"] }),
+        queryClient.invalidateQueries({ queryKey: ["vegetais"] }),
+        queryClient.invalidateQueries({ queryKey: ["stock_movements"] }),
+        queryClient.invalidateQueries({ queryKey: ["members"] }),
+      ]);
       toast.success("Sessão registrada com sucesso!");
       navigate("/historico");
-    } catch (error: any) {
-      toast.error("Erro ao registrar sessão: " + error.message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "erro desconhecido";
+      toast.error("Erro ao registrar sessão: " + message);
     } finally {
       submittingRef.current = false;
       setIsSubmitting(false);

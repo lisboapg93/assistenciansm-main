@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Table,
   TableBody,
@@ -41,13 +51,16 @@ import {
   Camera,
   Mic,
   Edit,
+  Trash2,
   Upload,
   Download,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { CsvImportDialog } from "@/components/session/CsvImportDialog";
 import { useQueryClient } from "@tanstack/react-query";
-import { useSessions } from "@/hooks/useSessions";
+import { usePaginatedSessions, useDeleteSession } from "@/hooks/useSessions";
 import { Session, SESSION_TYPES, PARTICIPANT_LABELS } from "@/types/database";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
@@ -83,6 +96,8 @@ const LAST_MONTHS_OPTIONS = [
   { value: "12", label: "Últimos 12 meses" },
 ];
 
+const SESSIONS_PAGE_SIZE = 25;
+
 export default function Historico() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -96,20 +111,43 @@ export default function Historico() {
     lastMonths: undefined as number | undefined,
   });
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null);
   const [isExporting, setIsExporting] = useState(false);
+  const [page, setPage] = useState(0);
+  const deleteSession = useDeleteSession();
 
-  const { data: sessions, isLoading } = useSessions({
+  const sessionFilters = useMemo(() => ({
     search: filters.search,
     year: filters.lastMonths ? undefined : filters.year,
     month: filters.lastMonths ? undefined : filters.month,
     types: filters.types.length > 0 ? filters.types : undefined,
     lastMonths: filters.lastMonths,
-  });
+  }), [filters]);
+
+  const { data: sessionPage, isLoading } = usePaginatedSessions(
+    sessionFilters,
+    page,
+    SESSIONS_PAGE_SIZE,
+  );
+  const sessions = sessionPage?.items;
+  const totalSessions = sessionPage?.total || 0;
+  const totalPages = Math.max(1, Math.ceil(totalSessions / SESSIONS_PAGE_SIZE));
+
+  useEffect(() => {
+    setPage(0);
+  }, [filters]);
 
   const handleEdit = (sessionId: string) => {
     // For now, just close the modal - edit functionality can be added later
     setSelectedSession(null);
     navigate(`/sessao/editar/${sessionId}`);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!sessionToDelete) return;
+    await deleteSession.mutateAsync(sessionToDelete.id);
+    setSessionToDelete(null);
+    setSelectedSession(null);
   };
 
   const handleImportSuccess = () => {
@@ -138,7 +176,7 @@ export default function Historico() {
           <div>
             <h1 className="text-2xl md:text-3xl font-bold">Histórico de Sessões</h1>
             <p className="text-muted-foreground mt-1">
-              {sessions?.length || 0} sessões encontradas
+              {totalSessions} sessões encontradas
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -149,7 +187,7 @@ export default function Historico() {
               disabled={!sessions?.length || isExporting}
             >
               <Download className="h-4 w-4" />
-              {isExporting ? "Exportando..." : "Exportar XLSX"}
+              {isExporting ? "Exportando..." : "Exportar página XLSX"}
             </Button>
             {isEditor && (
               <Button onClick={() => setShowImportDialog(true)} variant="outline" className="gap-2">
@@ -401,6 +439,36 @@ export default function Historico() {
             )}
           </CardContent>
         </Card>
+
+        {totalSessions > SESSIONS_PAGE_SIZE && (
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-muted-foreground">
+              Página {page + 1} de {totalPages}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={page === 0}
+                onClick={() => setPage((currentPage) => Math.max(0, currentPage - 1))}
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                Anterior
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={page >= totalPages - 1}
+                onClick={() => setPage((currentPage) => Math.min(totalPages - 1, currentPage + 1))}
+              >
+                Próxima
+                <ChevronRight className="ml-1 h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Detail Modal */}
@@ -546,14 +614,22 @@ export default function Historico() {
 
                 {/* Actions */}
                 {isEditor && (
-                  <div className="pt-4 border-t">
-                    <Button 
-                      variant="outline" 
+                  <div className="pt-4 border-t flex flex-col sm:flex-row gap-2">
+                    <Button
+                      variant="outline"
                       className="w-full gap-2"
                       onClick={() => handleEdit(selectedSession.id)}
                     >
                       <Edit className="h-4 w-4" />
                       Editar Sessão
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      className="w-full gap-2"
+                      onClick={() => setSessionToDelete(selectedSession)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Excluir Sessão
                     </Button>
                   </div>
                 )}
@@ -568,6 +644,40 @@ export default function Historico() {
         onOpenChange={setShowImportDialog}
         onSuccess={handleImportSuccess}
       />
+
+      <AlertDialog
+        open={!!sessionToDelete}
+        onOpenChange={(open) => !open && setSessionToDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir sessão?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta ação não pode ser desfeita. A sessão
+              {sessionToDelete && (
+                <>
+                  {" "}de{" "}
+                  {format(parseDbDateToLocal(sessionToDelete.date), "dd/MM/yyyy", {
+                    locale: ptBR,
+                  })}{" "}
+                  ({sessionToDelete.type})
+                </>
+              )}{" "}
+              será removida permanentemente do histórico.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={deleteSession.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteSession.isPending ? "Excluindo..." : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </MainLayout>
   );
 }

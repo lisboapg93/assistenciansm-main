@@ -23,3 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 assistenciansm-main.code-workspace
+
+# Claude Code project guidance (local only)
+CLAUDE.md

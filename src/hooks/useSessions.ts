@@ -1,15 +1,36 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Session, Participants, Consumption } from "@/types/database";
+import type { Database } from "@/integrations/supabase/types";
 import { toast } from "sonner";
 
-interface SessionFilters {
+type SessionInsert = Database["public"]["Tables"]["session"]["Insert"];
+type SessionUpdate = Database["public"]["Tables"]["session"]["Update"];
+
+export interface SessionFilters {
   year?: number;
   month?: number;
   types?: string[];
   search?: string;
   lastMonths?: number;
 }
+
+export interface SessionPage {
+  items: Session[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+const sanitizeSearch = (value: string) =>
+  value.trim().slice(0, 100).replace(/[,%().]/g, " ");
+
+const mapSessions = (data: Array<{ participants: unknown; consumption: unknown }>) =>
+  data.map((session) => ({
+    ...session,
+    participants: session.participants as Participants,
+    consumption: session.consumption as Consumption,
+  })) as Session[];
 
 export function useSessions(filters?: SessionFilters) {
   return useQuery({
@@ -45,21 +66,66 @@ export function useSessions(filters?: SessionFilters) {
         query = query.in("type", filters.types);
       }
 
-      if (filters?.search) {
+      const search = filters?.search ? sanitizeSearch(filters.search) : "";
+      if (search) {
         query = query.or(
-          `dirigente.ilike.%${filters.search}%,explanador.ilike.%${filters.search}%,leitor.ilike.%${filters.search}%,mestre_assistente.ilike.%${filters.search}%,type.ilike.%${filters.search}%,observation.ilike.%${filters.search}%`
+          `dirigente.ilike.*${search}*,explanador.ilike.*${search}*,leitor.ilike.*${search}*,mestre_assistente.ilike.*${search}*,type.ilike.*${search}*,observation.ilike.*${search}*`
         );
       }
 
       const { data, error } = await query;
       if (error) throw error;
       
-      // Parse JSONB fields
-      return (data || []).map((session) => ({
-        ...session,
-        participants: session.participants as unknown as Participants,
-        consumption: session.consumption as unknown as Consumption,
-      })) as Session[];
+      return mapSessions(data || []);
+    },
+  });
+}
+
+export function usePaginatedSessions(
+  filters: SessionFilters | undefined,
+  page: number,
+  pageSize: number,
+) {
+  return useQuery({
+    queryKey: ["sessions", "page", filters, page, pageSize],
+    queryFn: async (): Promise<SessionPage> => {
+      let query = supabase
+        .from("session")
+        .select("*", { count: "exact" })
+        .order("date", { ascending: false });
+
+      if (filters?.lastMonths) {
+        const now = new Date();
+        const startDate = new Date(now.getFullYear(), now.getMonth() - filters.lastMonths, now.getDate()).toISOString();
+        query = query.gte("date", startDate);
+      } else {
+        if (filters?.year) {
+          const startDate = new Date(filters.year, 0, 1).toISOString();
+          const endDate = new Date(filters.year + 1, 0, 1).toISOString();
+          query = query.gte("date", startDate).lt("date", endDate);
+        }
+        if (filters?.month !== undefined && filters.month >= 0) {
+          const year = filters.year || new Date().getFullYear();
+          const startDate = new Date(year, filters.month, 1).toISOString();
+          const endDate = new Date(year, filters.month + 1, 1).toISOString();
+          query = query.gte("date", startDate).lt("date", endDate);
+        }
+      }
+
+      if (filters?.types?.length) query = query.in("type", filters.types);
+
+      const search = filters?.search ? sanitizeSearch(filters.search) : "";
+      if (search) {
+        query = query.or(
+          `dirigente.ilike.*${search}*,explanador.ilike.*${search}*,leitor.ilike.*${search}*,mestre_assistente.ilike.*${search}*,type.ilike.*${search}*,observation.ilike.*${search}*`,
+        );
+      }
+
+      const offset = page * pageSize;
+      const { data, error, count } = await query.range(offset, offset + pageSize - 1);
+      if (error) throw error;
+
+      return { items: mapSessions(data || []), total: count || 0, page, pageSize };
     },
   });
 }
@@ -96,7 +162,7 @@ export function useCreateSession() {
     ) => {
       const { data, error } = await supabase
         .from("session")
-        .insert(session as any)
+        .insert(session as unknown as SessionInsert)
         .select()
         .single();
 
@@ -127,7 +193,7 @@ export function useUpdateSession() {
     }) => {
       const { data, error } = await supabase
         .from("session")
-        .update(updates as any)
+        .update(updates as unknown as SessionUpdate)
         .eq("id", id)
         .select()
         .single();
@@ -156,7 +222,9 @@ export function useDeleteSession() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      toast.success("Sessão excluída!");
+      queryClient.invalidateQueries({ queryKey: ["vegetais"] });
+      queryClient.invalidateQueries({ queryKey: ["stock_movements"] });
+      toast.success("Sessão excluída e consumo de estoque revertido!");
     },
     onError: (error) => {
       toast.error("Erro ao excluir sessão: " + error.message);
