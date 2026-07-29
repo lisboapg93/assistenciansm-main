@@ -30,6 +30,10 @@ export function getEligibleDirigentes(
     return members.filter((member) => GRAUS_DIRIGENTE_ESCALA.includes(member.grau || ""));
   }
 
+  if (type === "Quadro de Mestres") {
+    return members;
+  }
+
   if (type === "Extra") {
     return members.filter((member) => member.grau !== GRAU_QUADRO_DE_SOCIOS);
   }
@@ -44,6 +48,10 @@ export function getDirigenteRuleDescription(type: string, onlyQuadroDeMestre = f
 
   if (TIPOS_SESSAO_ESCALA.includes(type)) {
     return "Apenas Quadro de Mestres, Corpo do Conselho e Corpo Instrutivo.";
+  }
+
+  if (type === "Quadro de Mestres") {
+    return "Todos os membros.";
   }
 
   if (type === "Extra") {
