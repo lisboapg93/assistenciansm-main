@@ -10,10 +10,71 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.1"
+    PostgrestVersion: "14.5"
+  }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
+      error_logs: {
+        Row: {
+          entity: string | null
+          entity_id: string | null
+          error_location: string
+          error_message: string
+          id: string
+          metadata: Json
+          occurred_at: string
+          operation: string | null
+          user_id: string | null
+        }
+        Insert: {
+          entity?: string | null
+          entity_id?: string | null
+          error_location: string
+          error_message: string
+          id?: string
+          metadata?: Json
+          occurred_at?: string
+          operation?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          entity?: string | null
+          entity_id?: string | null
+          error_location?: string
+          error_message?: string
+          id?: string
+          metadata?: Json
+          occurred_at?: string
+          operation?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       members: {
         Row: {
           created_at: string
@@ -261,6 +322,21 @@ export type Database = {
         Returns: boolean
       }
       is_authenticated: { Args: never; Returns: boolean }
+      log_application_error: {
+        Args: {
+          p_entity?: string
+          p_entity_id?: string
+          p_error_location: string
+          p_error_message: string
+          p_metadata?: Json
+          p_operation?: string
+        }
+        Returns: string
+      }
+      register_session_with_consumption: {
+        Args: { p_member_names?: Json; p_session: Json; p_sources: Json }
+        Returns: string
+      }
     }
     Enums: {
       app_role: "viewer" | "editor" | "assistant"
@@ -389,6 +465,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: ["viewer", "editor", "assistant"],

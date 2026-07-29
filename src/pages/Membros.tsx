@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import { Users, Plus, Pencil, Trash2, Search, UserCheck } from "lucide-react";
+import { getErrorMessage, logApplicationError } from "@/lib/errorLogging";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -111,11 +112,13 @@ export default function Membros() {
         toast.success("Membro atualizado com sucesso");
       } else {
         // Check if name already exists
-        const { data: existing } = await supabase
+        const { data: existing, error: lookupError } = await supabase
           .from("members")
           .select("id")
           .eq("name", trimmedName)
           .maybeSingle();
+
+        if (lookupError) throw lookupError;
 
         if (existing) {
           toast.error("Já existe um membro com este nome");
@@ -133,8 +136,14 @@ export default function Membros() {
 
       queryClient.invalidateQueries({ queryKey: ["members"] });
       setIsDialogOpen(false);
-    } catch (error: any) {
-      toast.error(error.message || "Erro ao salvar membro");
+    } catch (error: unknown) {
+      await logApplicationError(error, {
+        location: editingMember ? "Membros.update" : "Membros.create",
+        operation: editingMember ? "update" : "create",
+        entity: "members",
+        entityId: editingMember?.id,
+      });
+      toast.error(getErrorMessage(error) || "Erro ao salvar membro");
     } finally {
       setIsSaving(false);
     }
@@ -152,8 +161,14 @@ export default function Membros() {
       if (error) throw error;
       toast.success("Membro excluído com sucesso");
       queryClient.invalidateQueries({ queryKey: ["members"] });
-    } catch (error: any) {
-      toast.error(error.message || "Erro ao excluir membro");
+    } catch (error: unknown) {
+      await logApplicationError(error, {
+        location: "Membros.delete",
+        operation: "delete",
+        entity: "members",
+        entityId: deletingMember.id,
+      });
+      toast.error(getErrorMessage(error) || "Erro ao excluir membro");
     } finally {
       setIsDeleteDialogOpen(false);
       setDeletingMember(null);

@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { StockMovement, MovementType } from "@/types/database";
+import { logAndThrow } from "@/lib/errorLogging";
 
 export function useStockMovements(vegetalId?: string) {
   return useQuery({
@@ -16,7 +17,14 @@ export function useStockMovements(vegetalId?: string) {
       }
 
       const { data, error } = await query;
-      if (error) throw error;
+      if (error) {
+        return logAndThrow(error, {
+          location: "useStockMovements.list",
+          operation: "read",
+          entity: "stock_movement",
+          metadata: { filtered_by_vegetal: Boolean(vegetalId) },
+        });
+      }
       return (data || []).map((m) => ({
         ...m,
         type: m.type as MovementType,

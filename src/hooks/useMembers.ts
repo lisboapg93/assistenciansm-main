@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { logAndThrow } from "@/lib/errorLogging";
 
 export interface Member {
   id: string;
@@ -17,7 +18,13 @@ export function useMembers() {
         .from("members")
         .select("*")
         .order("name", { ascending: true });
-      if (error) throw error;
+      if (error) {
+        return logAndThrow(error, {
+          location: "useMembers.list",
+          operation: "read",
+          entity: "members",
+        });
+      }
       return data as Member[];
     },
   });
@@ -32,11 +39,19 @@ export function useAddMember() {
       if (!trimmedName) return null;
 
       // Check if name already exists
-      const { data: existing } = await supabase
+      const { data: existing, error: lookupError } = await supabase
         .from("members")
         .select("id")
         .eq("name", trimmedName)
         .maybeSingle();
+
+      if (lookupError) {
+        return logAndThrow(lookupError, {
+          location: "useMembers.checkExistingBeforeCreate",
+          operation: "read",
+          entity: "members",
+        });
+      }
 
       if (existing) return existing;
 
@@ -49,7 +64,11 @@ export function useAddMember() {
       if (error) {
         // Ignore unique constraint violations
         if (error.code === "23505") return null;
-        throw error;
+        return logAndThrow(error, {
+          location: "useMembers.create",
+          operation: "create",
+          entity: "members",
+        });
       }
       return data;
     },
@@ -64,13 +83,28 @@ export async function addMemberIfNotExists(name: string) {
   const trimmedName = name.trim();
   if (!trimmedName) return;
 
-  const { data: existing } = await supabase
+  const { data: existing, error: lookupError } = await supabase
     .from("members")
     .select("id")
     .eq("name", trimmedName)
     .maybeSingle();
 
+  if (lookupError) {
+    return logAndThrow(lookupError, {
+      location: "addMemberIfNotExists.checkExisting",
+      operation: "read",
+      entity: "members",
+    });
+  }
+
   if (!existing) {
-    await supabase.from("members").insert({ name: trimmedName });
+    const { error } = await supabase.from("members").insert({ name: trimmedName });
+    if (error && error.code !== "23505") {
+      return logAndThrow(error, {
+        location: "addMemberIfNotExists.create",
+        operation: "create",
+        entity: "members",
+      });
+    }
   }
 }

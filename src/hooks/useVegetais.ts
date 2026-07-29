@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Vegetal } from "@/types/database";
 import { toast } from "sonner";
+import { logAndThrow } from "@/lib/errorLogging";
 
 export function useVegetais(showArchived = false) {
   return useQuery({
@@ -17,7 +18,14 @@ export function useVegetais(showArchived = false) {
       }
 
       const { data, error } = await query;
-      if (error) throw error;
+      if (error) {
+        return logAndThrow(error, {
+          location: "useVegetais.list",
+          operation: "read",
+          entity: "vegetal",
+          metadata: { show_archived: showArchived },
+        });
+      }
       return data as Vegetal[];
     },
   });
@@ -33,7 +41,14 @@ export function useVegetal(id: string | undefined) {
         .select("*")
         .eq("id", id)
         .maybeSingle();
-      if (error) throw error;
+      if (error) {
+        return logAndThrow(error, {
+          location: "useVegetais.getById",
+          operation: "read",
+          entity: "vegetal",
+          entityId: id,
+        });
+      }
       return data as Vegetal | null;
     },
     enabled: !!id,
@@ -54,15 +69,30 @@ export function useCreateVegetal() {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        return logAndThrow(error, {
+          location: "useVegetais.create",
+          operation: "create",
+          entity: "vegetal",
+        });
+      }
 
       // Create stock movement entry
-      await supabase.from("stock_movement").insert({
+      const { error: movementError } = await supabase.from("stock_movement").insert({
         type: "Entrada",
         quantity: vegetal.initial_quantity,
         vegetal_id: data.id,
         details: `Novo lote cadastrado: ${vegetal.name}`,
       });
+
+      if (movementError) {
+        return logAndThrow(movementError, {
+          location: "useVegetais.createStockMovement",
+          operation: "create",
+          entity: "stock_movement",
+          metadata: { vegetal_id: data.id },
+        });
+      }
 
       return data;
     },
@@ -97,7 +127,14 @@ export function useUpdateVegetal() {
         .eq("id", id)
         .single();
 
-      if (currentError) throw currentError;
+      if (currentError) {
+        return logAndThrow(currentError, {
+          location: "useVegetais.loadBeforeUpdate",
+          operation: "read",
+          entity: "vegetal",
+          entityId: id,
+        });
+      }
 
       const { data, error } = await supabase
         .from("vegetal")
@@ -106,7 +143,14 @@ export function useUpdateVegetal() {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        return logAndThrow(error, {
+          location: "useVegetais.update",
+          operation: "update",
+          entity: "vegetal",
+          entityId: id,
+        });
+      }
 
       // Create stock movement if quantity changed
       if (movementType && updates.quantity !== undefined) {
@@ -120,7 +164,14 @@ export function useUpdateVegetal() {
           details: movementDetails || `${movementType} de estoque`,
         });
 
-        if (movementError) throw movementError;
+        if (movementError) {
+          return logAndThrow(movementError, {
+            location: "useVegetais.updateStockMovement",
+            operation: "create",
+            entity: "stock_movement",
+            metadata: { vegetal_id: id },
+          });
+        }
       }
 
       return data;

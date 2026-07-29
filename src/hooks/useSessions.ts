@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Session, Participants, Consumption } from "@/types/database";
 import type { Database } from "@/integrations/supabase/types";
 import { toast } from "sonner";
+import { logAndThrow } from "@/lib/errorLogging";
 
 type SessionInsert = Database["public"]["Tables"]["session"]["Insert"];
 type SessionUpdate = Database["public"]["Tables"]["session"]["Update"];
@@ -74,7 +75,13 @@ export function useSessions(filters?: SessionFilters) {
       }
 
       const { data, error } = await query;
-      if (error) throw error;
+      if (error) {
+        return logAndThrow(error, {
+          location: "useSessions.list",
+          operation: "read",
+          entity: "session",
+        });
+      }
       
       return mapSessions(data || []);
     },
@@ -123,7 +130,14 @@ export function usePaginatedSessions(
 
       const offset = page * pageSize;
       const { data, error, count } = await query.range(offset, offset + pageSize - 1);
-      if (error) throw error;
+      if (error) {
+        return logAndThrow(error, {
+          location: "useSessions.paginatedList",
+          operation: "read",
+          entity: "session",
+          metadata: { page, page_size: pageSize },
+        });
+      }
 
       return { items: mapSessions(data || []), total: count || 0, page, pageSize };
     },
@@ -140,14 +154,21 @@ export function useSession(id: string | undefined) {
         .select("*")
         .eq("id", id)
         .maybeSingle();
-      if (error) throw error;
+      if (error) {
+        return logAndThrow(error, {
+          location: "useSessions.getById",
+          operation: "read",
+          entity: "session",
+          entityId: id,
+        });
+      }
       if (!data) return null;
       
       return {
         ...data,
         participants: data.participants as unknown as Participants,
         consumption: data.consumption as unknown as Consumption,
-      } as Session;
+      } as unknown as Session;
     },
     enabled: !!id,
   });
@@ -166,7 +187,13 @@ export function useCreateSession() {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        return logAndThrow(error, {
+          location: "useSessions.create",
+          operation: "create",
+          entity: "session",
+        });
+      }
       return data;
     },
     onSuccess: () => {
@@ -198,7 +225,14 @@ export function useUpdateSession() {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        return logAndThrow(error, {
+          location: "useSessions.update",
+          operation: "update",
+          entity: "session",
+          entityId: id,
+        });
+      }
       return data;
     },
     onSuccess: () => {
@@ -218,7 +252,14 @@ export function useDeleteSession() {
   return useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("session").delete().eq("id", id);
-      if (error) throw error;
+      if (error) {
+        return logAndThrow(error, {
+          location: "useSessions.delete",
+          operation: "delete",
+          entity: "session",
+          entityId: id,
+        });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sessions"] });

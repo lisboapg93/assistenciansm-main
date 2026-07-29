@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useState, useEffect, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { User, Session } from "@supabase/supabase-js";
+import { logApplicationError } from "@/lib/errorLogging";
 
 type AppRole = "viewer" | "editor" | "assistant";
 
@@ -39,7 +40,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .single();
 
       if (error) {
-        console.error("Error fetching role:", error);
+        await logApplicationError(error, {
+          location: "AuthContext.fetchUserRole",
+          operation: "read",
+          entity: "user_roles",
+          entityId: userId,
+        });
         // Default to viewer if can't fetch role
         setUserRole("viewer");
         return;
@@ -47,7 +53,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       setUserRole(data?.role as AppRole || "viewer");
     } catch (err) {
-      console.error("Error fetching role:", err);
+      await logApplicationError(err, {
+        location: "AuthContext.fetchUserRole",
+        operation: "read",
+        entity: "user_roles",
+        entityId: userId,
+      });
       setUserRole("viewer");
     }
   };

@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { ConsumptionSource, Participants } from "@/types/database";
+import { logAndThrow } from "@/lib/errorLogging";
 
 export interface SessionRegistrationInput {
   date: string;
@@ -40,6 +41,16 @@ export async function registerSessionWithConsumption(
     p_member_names: memberNames,
   });
 
-  if (error) throw error;
+  if (error) {
+    return logAndThrow(error, {
+      location: "sessionRegistration.registerWithConsumption",
+      operation: "create",
+      entity: "session",
+      metadata: {
+        source_count: sources.length,
+        member_count: memberNames.length,
+      },
+    });
+  }
   return data;
 }

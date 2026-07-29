@@ -34,6 +34,7 @@ import {
   isEligibleMestreAssistente,
 } from "@/lib/sessionRoleEligibility";
 import { cn } from "@/lib/utils";
+import { getErrorMessage } from "@/lib/errorLogging";
 
 export default function EditarSessao() {
   const navigate = useNavigate();
@@ -130,8 +131,11 @@ export default function EditarSessao() {
       basicData.leitor,
     ].filter(Boolean);
 
-    for (const name of namesToAdd) {
-      await addMemberIfNotExists(name);
+    try {
+      await Promise.all(namesToAdd.map((name) => addMemberIfNotExists(name)));
+    } catch (error) {
+      toast.error("Erro ao atualizar membros da sessão: " + getErrorMessage(error));
+      return;
     }
 
     const updates = {
@@ -144,7 +148,7 @@ export default function EditarSessao() {
       has_photo: contentData.has_photo,
       has_audio: contentData.has_audio,
       observation: contentData.observation || null,
-      participants: participants as any,
+      participants,
       total_participants: totalParticipants,
     };
 

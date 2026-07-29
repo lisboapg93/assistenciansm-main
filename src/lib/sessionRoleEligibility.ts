@@ -17,11 +17,11 @@ const normalizeName = (name: string) => name.trim().toLocaleLowerCase("pt-BR");
 const findMember = (members: MemberRoleData[], name: string) =>
   members.find((member) => normalizeName(member.name) === normalizeName(name));
 
-export function getEligibleDirigentes(
+export function getEligibleDirigentes<T extends MemberRoleData>(
   type: string,
-  members: MemberRoleData[],
+  members: T[],
   onlyQuadroDeMestre = false,
-) {
+): T[] {
   if (onlyQuadroDeMestre) {
     return members.filter((member) => member.grau === GRAU_QUADRO_DE_MESTRE);
   }

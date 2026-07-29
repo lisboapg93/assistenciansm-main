@@ -28,6 +28,7 @@ import { Upload, FileText, CheckCircle2, XCircle, AlertTriangle, Download } from
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { SESSION_TYPES, Participants, Consumption } from "@/types/database";
+import { logApplicationError } from "@/lib/errorLogging";
 
 interface CsvImportDialogProps {
   open: boolean;
@@ -175,7 +176,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
     }
 
     const type = row.tipo?.trim() || "";
-    if (!SESSION_TYPES.includes(type as any)) {
+    if (!SESSION_TYPES.some((sessionType) => sessionType === type)) {
       errors.push(`Tipo de sessão inválido: "${type}"`);
     }
 
@@ -429,7 +430,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
     let successCount = 0;
     let failedCount = 0;
 
-    for (const session of validSessions) {
+    for (const [rowIndex, session] of validSessions.entries()) {
       try {
         const participants: Participants = {
           mestres: session.mestres,
@@ -464,7 +465,12 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
         });
 
         if (error) {
-          console.error("Error importing session:", error);
+          await logApplicationError(error, {
+            location: "CsvImportDialog.createSession",
+            operation: "import",
+            entity: "session",
+            metadata: { row: rowIndex + 1 },
+          });
           failedCount++;
         } else {
           successCount++;
@@ -479,14 +485,28 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
 
           for (const name of names) {
             if (name) {
-              await supabase
+              const { error: memberError } = await supabase
                 .from("members")
                 .upsert({ name }, { onConflict: "name", ignoreDuplicates: true });
+
+              if (memberError) {
+                await logApplicationError(memberError, {
+                  location: "CsvImportDialog.upsertMember",
+                  operation: "import",
+                  entity: "members",
+                  metadata: { row: rowIndex + 1 },
+                });
+              }
             }
           }
         }
       } catch (err) {
-        console.error("Error importing session:", err);
+        await logApplicationError(err, {
+          location: "CsvImportDialog.importSession",
+          operation: "import",
+          entity: "session",
+          metadata: { row: rowIndex + 1 },
+        });
         failedCount++;
       }
     }
@@ -539,7 +559,12 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
         <div className="flex-1 overflow-auto">
           {step === "upload" && (
             <div className="space-y-6 py-4">
-              <Tabs value={uploadTab} onValueChange={(v) => setUploadTab(v as any)}>
+              <Tabs
+                value={uploadTab}
+                onValueChange={(value) => {
+                  if (value === "file" || value === "paste") setUploadTab(value);
+                }}
+              >
                 <TabsList className="grid grid-cols-2 w-full">
                   <TabsTrigger value="file">Arquivo CSV</TabsTrigger>
                   <TabsTrigger value="paste">Colar conteúdo</TabsTrigger>
