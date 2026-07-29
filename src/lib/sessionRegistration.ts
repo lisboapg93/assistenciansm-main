@@ -33,7 +33,7 @@ export async function registerSessionWithConsumption(
 ) {
   // This function is added by the migration. Keep the cast local until the
   // generated Supabase types are refreshed from the deployed schema.
-  const rpc = supabase.rpc as unknown as SessionRegistrationRpc;
+  const rpc = supabase.rpc.bind(supabase) as unknown as SessionRegistrationRpc;
   const { data, error } = await rpc("register_session_with_consumption", {
     p_session: session,
     p_sources: sources,
