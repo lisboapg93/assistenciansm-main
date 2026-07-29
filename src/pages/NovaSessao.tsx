@@ -47,6 +47,21 @@ const STEPS = [
   { id: 4, title: "Consumo", icon: Droplets },
 ];
 
+function getRegistrationErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+
+  if (typeof error === "object" && error !== null && "message" in error) {
+    if ("code" in error && error.code === "PGRST202") {
+      return "A função de registro ainda não está disponível no banco. Atualize as migrations do Supabase e tente novamente.";
+    }
+
+    const message = error.message;
+    if (typeof message === "string") return message;
+  }
+
+  return "erro desconhecido";
+}
+
 export default function NovaSessao() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -265,7 +280,7 @@ export default function NovaSessao() {
       toast.success("Sessão registrada com sucesso!");
       navigate("/historico");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "erro desconhecido";
+      const message = getRegistrationErrorMessage(error);
       toast.error("Erro ao registrar sessão: " + message);
     } finally {
       submittingRef.current = false;
