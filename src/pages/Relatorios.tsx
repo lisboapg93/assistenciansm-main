@@ -80,6 +80,7 @@ const movementEffect = (type: MovementType, quantity: number) => {
 export default function Relatorios() {
   const [year, setYear] = useState(currentYear);
   const [averageType, setAverageType] = useState("");
+  const [assistantFilter, setAssistantFilter] = useState("");
 
   const { data: sessions, isLoading } = useSessions({ year });
   const stats = useStatistics(sessions);
@@ -176,16 +177,27 @@ export default function Relatorios() {
     return evolution;
   }, [movements, year, currentStock]);
 
+  const mestreAssistentes = useMemo(
+    () =>
+      [...new Set((sessions || []).map((session) => session.mestre_assistente).filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, "pt-BR")),
+    [sessions]
+  );
+
   const assistanceReport = useMemo(() => {
     const grouped: Record<string, { type: string; sessions: number; consumption: number; members: number }> = {};
-    (sessions || []).forEach((session) => {
+    const filteredSessions = assistantFilter
+      ? (sessions || []).filter((session) => session.mestre_assistente === assistantFilter)
+      : sessions || [];
+
+    filteredSessions.forEach((session) => {
       grouped[session.type] ||= { type: session.type, sessions: 0, consumption: 0, members: 0 };
       grouped[session.type].sessions += 1;
       grouped[session.type].consumption += Number(session.consumption?.total_consumed || 0);
       grouped[session.type].members += Number(session.participants?.socios || 0);
     });
     return Object.values(grouped).sort((a, b) => b.sessions - a.sessions);
-  }, [sessions]);
+  }, [sessions, assistantFilter]);
 
   if (isLoading || isLoadingMovements) {
     return (
@@ -524,11 +536,27 @@ export default function Relatorios() {
         </Card>
 
         <Card>
-          <CardHeader>
+          <CardHeader className="gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle className="flex items-center gap-2 text-base">
               <Calendar className="h-5 w-5 text-primary" />
               Ocorrências por Assistência em {year}
             </CardTitle>
+            <Select
+              value={assistantFilter || "all"}
+              onValueChange={(value) => setAssistantFilter(value === "all" ? "" : value)}
+            >
+              <SelectTrigger className="w-full sm:w-56">
+                <SelectValue placeholder="Todos os assistentes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos os assistentes</SelectItem>
+                {mestreAssistentes.map((assistant) => (
+                  <SelectItem key={assistant} value={assistant}>
+                    {assistant}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </CardHeader>
           <CardContent className="p-0 overflow-x-auto">
             {assistanceReport.length === 0 ? (
