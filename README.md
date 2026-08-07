@@ -1,73 +1,103 @@
-# Welcome to your Lovable project
+# Assistência NSM
 
-## Project info
+Aplicação web responsiva para administrar sessões, membros, estoque e relatórios da Assistência NSM.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## Funcionalidades
 
-## How can I edit this code?
+- Autenticação de usuários e controle de acesso por perfil.
+- Cadastro, edição e consulta do histórico de sessões.
+- Controle de estoque e registro de entradas.
+- Gestão de membros.
+- Dashboard e relatórios de acompanhamento.
+- Exportação de dados para planilhas.
 
-There are several ways of editing your application.
+## Tecnologias
 
-**Use Lovable**
+- React 18 e TypeScript
+- Vite
+- Tailwind CSS e componentes shadcn/ui
+- React Router
+- TanStack React Query
+- Supabase (autenticação e banco de dados)
+- Recharts e Papa Parse
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Requisitos
 
-Changes made via Lovable will be committed automatically to this repo.
+- Node.js 18 ou superior
+- npm
+- Projeto Supabase configurado
 
-**Use your preferred IDE**
+## Configuração
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+Instale as dependências:
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+```bash
+npm ci
+```
 
-Follow these steps:
+Crie um arquivo `.env.local` na raiz do projeto com as credenciais públicas do Supabase:
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+```env
+VITE_SUPABASE_URL=https://seu-projeto.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sua-chave-publica
+```
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+Não versione o arquivo `.env.local` nem exponha credenciais do projeto.
 
-# Step 3: Install the necessary dependencies.
-npm i
+## Execução local
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
+```bash
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+O servidor de desenvolvimento fica disponível em `http://localhost:3000`.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Comandos disponíveis
 
-**Use GitHub Codespaces**
+| Comando | Descrição |
+| --- | --- |
+| `npm run dev` | Inicia o servidor de desenvolvimento na porta 3000. |
+| `npm run build` | Gera a versão de produção em `dist/`. |
+| `npm run build:dev` | Gera uma build usando o modo `development`. |
+| `npm run lint` | Executa a verificação de qualidade com ESLint. |
+| `npm run preview` | Serve localmente a build de produção. |
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Perfis e permissões
 
-## What technologies are used for this project?
+| Rota | Viewer | Editor | Assistant |
+| --- | --- | --- | --- |
+| `/dashboard` | Sim | Sim | Não |
+| `/estoque` | Sim | Sim | Sim |
+| `/estoque/novo` | Não | Sim | Não |
+| `/sessao/nova` | Não | Sim | Sim |
+| `/sessao/editar/:id` | Não | Sim | Não |
+| `/historico` | Sim | Sim | Não |
+| `/relatorios` | Sim | Sim | Não |
+| `/membros` | Não | Sim | Não |
 
-This project is built with:
+Usuários não autenticados são enviados para a tela de login. Sessões expiram após 30 minutos sem atividade.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## Estrutura do projeto
 
-## How can I deploy this project?
+```text
+src/
+├── components/       # Componentes reutilizáveis e interface
+├── constants/        # Constantes de domínio
+├── contexts/         # Autenticação e permissões
+├── hooks/            # Acesso a dados e regras de domínio
+├── integrations/     # Cliente e tipos do Supabase
+├── lib/              # Utilitários compartilhados
+├── pages/            # Telas da aplicação
+└── types/            # Tipos auxiliares
+supabase/
+└── migrations/       # Migrations versionadas do banco de dados
+```
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+## Validação antes de publicar
 
-## Can I connect a custom domain to my Lovable project?
+```bash
+npm run build
+npm run lint
+```
 
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+Também valide manualmente o fluxo alterado, incluindo login, logout, expiração de sessão e permissões de cada perfil.

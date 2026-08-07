@@ -60,6 +60,15 @@ interface MemberForm {
   grau: Grau;
 }
 
+function getComparableName(name: string) {
+  return name
+    .trim()
+    .replace(/\s+/g, " ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("pt-BR");
+}
+
 export default function Membros() {
   const { data: members, isLoading } = useMembers();
   const queryClient = useQueryClient();
@@ -119,6 +128,18 @@ export default function Membros() {
       return;
     }
 
+    const comparableName = getComparableName(trimmedName);
+    const duplicateMember = members?.find((member) =>
+      member.id !== editingMember?.id
+      && (getComparableName(member.name) === comparableName
+        || getComparableName(getMemberDisplayName(member)) === comparableName),
+    );
+
+    if (duplicateMember) {
+      toast.error(`Já existe um membro cadastrado como "${getMemberDisplayName(duplicateMember)}"`);
+      return;
+    }
+
     const memberData = {
       name: trimmedName,
       chosen_name: usesChosenName(form.grau) ? chosenName : null,
@@ -137,21 +158,6 @@ export default function Membros() {
         if (error) throw error;
         toast.success("Membro atualizado com sucesso");
       } else {
-        // Check if name already exists
-        const { data: existing, error: lookupError } = await supabase
-          .from("members")
-          .select("id")
-          .eq("name", trimmedName)
-          .maybeSingle();
-
-        if (lookupError) throw lookupError;
-
-        if (existing) {
-          toast.error("Já existe um membro com este nome");
-          setIsSaving(false);
-          return;
-        }
-
         const { error } = await supabase
           .from("members")
           .insert(memberData);
