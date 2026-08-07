@@ -7,6 +7,7 @@ export interface Member {
   name: string;
   is_socio_nucleo: boolean;
   grau: string | null;
+  chosen_name: string | null;
   created_at: string;
 }
 

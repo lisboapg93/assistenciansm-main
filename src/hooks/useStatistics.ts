@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useVegetais } from "./useVegetais";
 import { Session } from "@/types/database";
+import { MemberDisplayData, getMemberDisplayNameForValue } from "@/lib/memberDisplay";
 
 interface StatisticsFilters {
   year?: number;
@@ -27,7 +28,11 @@ interface StatisticsResult {
   sequenciaMestresAssistentes: { name: string; date: string; type: string }[];
 }
 
-export function useStatistics(sessions: Session[] | undefined, filters?: StatisticsFilters): StatisticsResult {
+export function useStatistics(
+  sessions: Session[] | undefined,
+  filters?: StatisticsFilters,
+  members?: MemberDisplayData[],
+): StatisticsResult {
   const { data: vegetais } = useVegetais();
 
   return useMemo(() => {
@@ -97,7 +102,8 @@ export function useStatistics(sessions: Session[] | undefined, filters?: Statist
       filteredSessions.forEach((s) => {
         const name = s[field];
         if (name) {
-          counts[name] = (counts[name] || 0) + 1;
+          const displayName = getMemberDisplayNameForValue(name, members);
+          counts[displayName] = (counts[displayName] || 0) + 1;
         }
       });
       return Object.entries(counts)
@@ -115,7 +121,7 @@ export function useStatistics(sessions: Session[] | undefined, filters?: Statist
       for (const s of sortedSessions) {
         const name = s[field];
         if (name) {
-          result.push({ name, date: s.date, type: s.type });
+          result.push({ name: getMemberDisplayNameForValue(name, members), date: s.date, type: s.type });
         }
       }
       return result;
@@ -129,9 +135,10 @@ export function useStatistics(sessions: Session[] | undefined, filters?: Statist
     const sequenciaMestresAssistentes: { name: string; date: string; type: string }[] = [];
     for (const s of sortedByDateDesc) {
       const name = s.mestre_assistente;
-      if (name && !seenAssistentes.has(name)) {
-        seenAssistentes.add(name);
-        sequenciaMestresAssistentes.push({ name, date: s.date, type: s.type });
+      const displayName = name ? getMemberDisplayNameForValue(name, members) : "";
+      if (displayName && !seenAssistentes.has(displayName)) {
+        seenAssistentes.add(displayName);
+        sequenciaMestresAssistentes.push({ name: displayName, date: s.date, type: s.type });
       }
     }
 
@@ -154,5 +161,5 @@ export function useStatistics(sessions: Session[] | undefined, filters?: Statist
       recentLeitores: recentBy("leitor"),
       sequenciaMestresAssistentes,
     };
-  }, [sessions, vegetais, filters?.type]);
+  }, [sessions, vegetais, filters?.type, members]);
 }

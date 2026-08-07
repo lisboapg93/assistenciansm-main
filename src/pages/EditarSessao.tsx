@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useSession, useUpdateSession } from "@/hooks/useSessions";
 import { useMembers, addMemberIfNotExists } from "@/hooks/useMembers";
+import { getMemberDisplayName, getMemberDisplayNameForValue } from "@/lib/memberDisplay";
 import { SESSION_TYPES, TYPES_WITH_EXPLANADOR_LEITOR, PARTICIPANT_LABELS, Participants } from "@/types/database";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -73,10 +74,12 @@ export default function EditarSessao() {
       setBasicData({
         date: session.date.slice(0, 10),
         type: session.type,
-        dirigente: session.dirigente,
-        explanador: session.explanador || "",
-        leitor: session.leitor || "",
-        mestre_assistente: session.mestre_assistente || "",
+        dirigente: getMemberDisplayNameForValue(session.dirigente, members),
+        explanador: session.explanador ? getMemberDisplayNameForValue(session.explanador, members) : "",
+        leitor: session.leitor ? getMemberDisplayNameForValue(session.leitor, members) : "",
+        mestre_assistente: session.mestre_assistente
+          ? getMemberDisplayNameForValue(session.mestre_assistente, members)
+          : "",
       });
       setContentData({
         has_photo: session.has_photo,
@@ -85,11 +88,11 @@ export default function EditarSessao() {
       });
       setParticipants(session.participants);
     }
-  }, [session]);
+  }, [session, members]);
 
   const showExplanadorLeitor = TYPES_WITH_EXPLANADOR_LEITOR.includes(basicData.type);
   const totalParticipants = Object.values(participants).reduce((a, b) => a + b, 0);
-  const memberNames = members?.map((m) => m.name) || [];
+  const memberNames = members?.map(getMemberDisplayName) || [];
   const eligibleDirigentes = getEligibleDirigentes(basicData.type, members || []);
   const eligibleExplanadores = members?.filter((member) => member.grau !== "Quadro de Sócios") || [];
   const mestresAssistentes = members?.filter((member) => member.grau === "Quadro de Mestre") || [];
@@ -321,17 +324,17 @@ export default function EditarSessao() {
             </datalist>
             <datalist id="eligible-dirigentes-list">
               {eligibleDirigentes.map((member) => (
-                <option key={member.id} value={member.name} />
+                <option key={member.id} value={getMemberDisplayName(member)} />
               ))}
             </datalist>
             <datalist id="eligible-explanadores-list">
               {eligibleExplanadores.map((member) => (
-                <option key={member.id} value={member.name} />
+                <option key={member.id} value={getMemberDisplayName(member)} />
               ))}
             </datalist>
             <datalist id="mestres-assistentes-list">
               {mestresAssistentes.map((member) => (
-                <option key={member.id} value={member.name} />
+                <option key={member.id} value={getMemberDisplayName(member)} />
               ))}
             </datalist>
           </CardContent>

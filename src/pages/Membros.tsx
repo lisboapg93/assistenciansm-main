@@ -32,6 +32,7 @@ import {
 import { toast } from "sonner";
 import { Users, Plus, Pencil, Trash2, Search, UserCheck } from "lucide-react";
 import { getErrorMessage, logApplicationError } from "@/lib/errorLogging";
+import { getMemberDisplayName, usesChosenName } from "@/lib/memberDisplay";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,6 +55,7 @@ type Grau = typeof GRAU_OPTIONS[number] | null;
 
 interface MemberForm {
   name: string;
+  chosen_name: string;
   is_socio_nucleo: boolean;
   grau: Grau;
 }
@@ -65,26 +67,32 @@ export default function Membros() {
   const [search, setSearch] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [editingMember, setEditingMember] = useState<{ id: string } | null>(null);
+  const [editingMember, setEditingMember] = useState<{ id: string; grau: Grau; hasChosenName: boolean } | null>(null);
   const [deletingMember, setDeletingMember] = useState<{ id: string; name: string } | null>(null);
-  const [form, setForm] = useState<MemberForm>({ name: "", is_socio_nucleo: false, grau: null });
+  const [form, setForm] = useState<MemberForm>({ name: "", chosen_name: "", is_socio_nucleo: false, grau: null });
   const [isSaving, setIsSaving] = useState(false);
 
-  const filteredMembers = members?.filter((member) =>
-    member.name.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredMembers = members?.filter((member) => {
+    const normalizedSearch = search.toLocaleLowerCase("pt-BR");
+    return member.name.toLocaleLowerCase("pt-BR").includes(normalizedSearch)
+      || getMemberDisplayName(member).toLocaleLowerCase("pt-BR").includes(normalizedSearch);
+  });
 
   const socioCount = members?.filter((m) => m.is_socio_nucleo).length ?? 0;
 
   const openCreateDialog = () => {
     setEditingMember(null);
-    setForm({ name: "", is_socio_nucleo: false, grau: null });
+    setForm({ name: "", chosen_name: "", is_socio_nucleo: false, grau: null });
     setIsDialogOpen(true);
   };
 
-  const openEditDialog = (member: { id: string; name: string; is_socio_nucleo: boolean; grau: string | null }) => {
-    setEditingMember({ id: member.id });
-    setForm({ name: member.name, is_socio_nucleo: member.is_socio_nucleo, grau: member.grau as Grau });
+  const openEditDialog = (member: { id: string; name: string; chosen_name: string | null; is_socio_nucleo: boolean; grau: string | null }) => {
+    setEditingMember({
+      id: member.id,
+      grau: member.grau as Grau,
+      hasChosenName: Boolean(member.chosen_name?.trim()),
+    });
+    setForm({ name: member.name, chosen_name: member.chosen_name || "", is_socio_nucleo: member.is_socio_nucleo, grau: member.grau as Grau });
     setIsDialogOpen(true);
   };
 
@@ -100,12 +108,30 @@ export default function Membros() {
       return;
     }
 
+    const chosenName = form.chosen_name.trim();
+    const canKeepLegacyName = editingMember
+      && usesChosenName(editingMember.grau)
+      && editingMember.grau === form.grau
+      && !editingMember.hasChosenName;
+
+    if (usesChosenName(form.grau) && !chosenName && !canKeepLegacyName) {
+      toast.error("Nome escolhido é obrigatório para mestres e conselheiros");
+      return;
+    }
+
+    const memberData = {
+      name: trimmedName,
+      chosen_name: usesChosenName(form.grau) ? chosenName : null,
+      is_socio_nucleo: form.is_socio_nucleo,
+      grau: form.grau,
+    };
+
     setIsSaving(true);
     try {
       if (editingMember) {
         const { error } = await supabase
           .from("members")
-          .update({ name: trimmedName, is_socio_nucleo: form.is_socio_nucleo, grau: form.grau })
+          .update(memberData)
           .eq("id", editingMember.id);
 
         if (error) throw error;
@@ -128,7 +154,7 @@ export default function Membros() {
 
         const { error } = await supabase
           .from("members")
-          .insert({ name: trimmedName, is_socio_nucleo: form.is_socio_nucleo, grau: form.grau });
+          .insert(memberData);
 
         if (error) throw error;
         toast.success("Membro adicionado com sucesso");
@@ -253,7 +279,7 @@ export default function Membros() {
               ) : (
                 filteredMembers?.map((member) => (
                   <TableRow key={member.id}>
-                    <TableCell className="font-medium">{member.name}</TableCell>
+                    <TableCell className="font-medium">{getMemberDisplayName(member)}</TableCell>
                     <TableCell className="hidden sm:table-cell text-muted-foreground">
                       {member.grau || "—"}
                     </TableCell>
@@ -310,6 +336,25 @@ export default function Membros() {
                 placeholder="Digite o nome do membro"
               />
             </div>
+            {usesChosenName(form.grau) && (
+              <div className="space-y-2">
+                <Label htmlFor="chosen_name">Nome escolhido</Label>
+                <Input
+                  id="chosen_name"
+                  value={form.chosen_name}
+                  onChange={(e) => setForm((prev) => ({ ...prev, chosen_name: e.target.value }))}
+                  placeholder={form.grau === "Quadro de Mestre" ? "Ex.: Mestre Marcio Cruz" : "Ex.: Conselheira Mariana Lima"}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Será exibido como {form.grau === "Quadro de Mestre" ? "M." : "C."} {form.chosen_name.replace(/^(mestre|mestra|m\.|conselheiro|conselheira|c\.)\s*/i, "") || "Nome escolhido"}.
+                </p>
+                {editingMember && !editingMember.hasChosenName && editingMember.grau === form.grau && (
+                  <p className="text-xs text-muted-foreground">
+                    Cadastro antigo: se este campo ficar vazio, o nome atual será mantido como está.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="grau">Grau</Label>
               <Select

@@ -43,6 +43,8 @@ import { useSessions } from "@/hooks/useSessions";
 import { useStatistics } from "@/hooks/useStatistics";
 import { useTotalStock } from "@/hooks/useVegetais";
 import { useStockMovements } from "@/hooks/useStockMovements";
+import { useMembers } from "@/hooks/useMembers";
+import { getMemberDisplayNameForValue } from "@/lib/memberDisplay";
 import { SESSION_TYPES, MovementType } from "@/types/database";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format, parseISO } from "date-fns";
@@ -83,8 +85,9 @@ export default function Relatorios() {
   const [assistantFilter, setAssistantFilter] = useState("");
 
   const { data: sessions, isLoading } = useSessions({ year });
-  const stats = useStatistics(sessions);
-  const statsFiltered = useStatistics(sessions, { type: averageType || undefined });
+  const { data: members } = useMembers();
+  const stats = useStatistics(sessions, undefined, members);
+  const statsFiltered = useStatistics(sessions, { type: averageType || undefined }, members);
   const currentStock = useTotalStock();
   const { data: movements, isLoading: isLoadingMovements } = useStockMovements();
 
@@ -179,15 +182,20 @@ export default function Relatorios() {
 
   const mestreAssistentes = useMemo(
     () =>
-      [...new Set((sessions || []).map((session) => session.mestre_assistente).filter(Boolean))]
+      [...new Set((sessions || [])
+        .map((session) => session.mestre_assistente && getMemberDisplayNameForValue(session.mestre_assistente, members))
+        .filter(Boolean))]
         .sort((a, b) => a.localeCompare(b, "pt-BR")),
-    [sessions]
+    [sessions, members]
   );
 
   const assistanceReport = useMemo(() => {
     const grouped: Record<string, { type: string; sessions: number; consumption: number; members: number }> = {};
     const filteredSessions = assistantFilter
-      ? (sessions || []).filter((session) => session.mestre_assistente === assistantFilter)
+      ? (sessions || []).filter(
+        (session) => session.mestre_assistente
+          && getMemberDisplayNameForValue(session.mestre_assistente, members) === assistantFilter,
+      )
       : sessions || [];
 
     filteredSessions.forEach((session) => {
@@ -197,7 +205,7 @@ export default function Relatorios() {
       grouped[session.type].members += Number(session.participants?.socios || 0);
     });
     return Object.values(grouped).sort((a, b) => b.sessions - a.sessions);
-  }, [sessions, assistantFilter]);
+  }, [sessions, assistantFilter, members]);
 
   if (isLoading || isLoadingMovements) {
     return (

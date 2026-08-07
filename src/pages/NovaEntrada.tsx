@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { ArrowLeft, Droplets, Save } from "lucide-react";
 import { useCreateVegetal } from "@/hooks/useVegetais";
 import { useMembers, addMemberIfNotExists } from "@/hooks/useMembers";
+import { getMemberDisplayName } from "@/lib/memberDisplay";
 import { toast } from "sonner";
 
 export default function NovaEntrada() {
@@ -80,7 +81,7 @@ export default function NovaEntrada() {
     );
   };
 
-  const memberNames = members?.map((m) => m.name) || [];
+  const memberNames = members?.map(getMemberDisplayName) || [];
 
   return (
     <MainLayout>

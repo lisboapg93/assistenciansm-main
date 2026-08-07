@@ -19,6 +19,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { parseDbDateToLocal } from "@/lib/date";
+import { getMemberDisplayName, isMemberName } from "@/lib/memberDisplay";
 
 type ModalType = "dirigentes" | "explanadores" | "leitores" | "mestresAssistentes" | "naoExplanaram" | "naoLeram" | null;
 
@@ -33,7 +34,7 @@ export default function Dashboard() {
   const navigate = useNavigate();
   const { data: sessions } = useSessions();
   const { data: members } = useMembers();
-  const stats = useStatistics(sessions);
+  const stats = useStatistics(sessions, undefined, members);
   const [modalOpen, setModalOpen] = useState<ModalType>(null);
   const [grauFilters, setGrauFilters] = useState<string[]>([]);
 
@@ -42,21 +43,21 @@ export default function Dashboard() {
     const sociosNucleo = members?.filter(m => m.is_socio_nucleo) || [];
     
     // Get all unique explanadores and leitores from sessions
-    const explanadores = new Set<string>();
-    const leitores = new Set<string>();
+    const explanadores: string[] = [];
+    const leitores: string[] = [];
     
     sessions?.forEach(s => {
-      if (s.explanador) explanadores.add(s.explanador.toLowerCase().trim());
-      if (s.leitor) leitores.add(s.leitor.toLowerCase().trim());
+      if (s.explanador) explanadores.push(s.explanador);
+      if (s.leitor) leitores.push(s.leitor);
     });
 
     const naoExplanaram = sociosNucleo.filter(
-      m => !explanadores.has(m.name.toLowerCase().trim())
-    ).sort((a, b) => a.name.localeCompare(b.name));
+      m => !explanadores.some((name) => isMemberName(m, name))
+    ).sort((a, b) => getMemberDisplayName(a).localeCompare(getMemberDisplayName(b), "pt-BR"));
 
     const naoLeram = sociosNucleo.filter(
-      m => !leitores.has(m.name.toLowerCase().trim())
-    ).sort((a, b) => a.name.localeCompare(b.name));
+      m => !leitores.some((name) => isMemberName(m, name))
+    ).sort((a, b) => getMemberDisplayName(a).localeCompare(getMemberDisplayName(b), "pt-BR"));
 
     return { naoExplanaram, naoLeram };
   }, [members, sessions]);
@@ -110,13 +111,13 @@ export default function Dashboard() {
         const filtered = grauFilters.length > 0
           ? sociosNaoParticiparam.naoExplanaram.filter(m => m.grau && grauFilters.includes(m.grau))
           : sociosNaoParticiparam.naoExplanaram;
-        return filtered.map(m => ({ name: m.name, date: "", type: "", grau: m.grau }));
+        return filtered.map(m => ({ name: getMemberDisplayName(m), date: "", type: "", grau: m.grau }));
       }
       case "naoLeram": {
         const filtered = grauFilters.length > 0
           ? sociosNaoParticiparam.naoLeram.filter(m => m.grau && grauFilters.includes(m.grau))
           : sociosNaoParticiparam.naoLeram;
-        return filtered.map(m => ({ name: m.name, date: "", type: "", grau: m.grau }));
+        return filtered.map(m => ({ name: getMemberDisplayName(m), date: "", type: "", grau: m.grau }));
       }
       default:
         return [];

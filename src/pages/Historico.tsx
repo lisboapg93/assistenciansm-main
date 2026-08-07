@@ -68,6 +68,8 @@ import { ptBR } from "date-fns/locale";
 import { parseDbDateToLocal } from "@/lib/date";
 import { Badge } from "@/components/ui/badge";
 import { useAuthContext } from "@/contexts/AuthContext";
+import { useMembers } from "@/hooks/useMembers";
+import { getMemberDisplayNameForValue } from "@/lib/memberDisplay";
 import { exportHistoryToXlsx } from "@/lib/exportHistory";
 import { toast } from "sonner";
 
@@ -102,6 +104,7 @@ export default function Historico() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { isEditor } = useAuthContext();
+  const { data: members } = useMembers();
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [filters, setFilters] = useState({
     search: "",
@@ -406,7 +409,7 @@ export default function Historico() {
                         </Badge>
                       </TableCell>
                       <TableCell className="table-cell">
-                        {session.dirigente}
+                        {getMemberDisplayNameForValue(session.dirigente, members)}
                       </TableCell>
                       <TableCell className="hidden lg:table-cell">
                         <div className="flex items-center gap-1">
@@ -505,7 +508,7 @@ export default function Historico() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Dirigente</p>
-                    <p className="font-medium">{selectedSession.dirigente}</p>
+                    <p className="font-medium">{getMemberDisplayNameForValue(selectedSession.dirigente, members)}</p>
                   </div>
                   {selectedSession.mestre_assistente && (
                     <div>
@@ -513,20 +516,20 @@ export default function Historico() {
                         Mestre Assistente
                       </p>
                       <p className="font-medium">
-                        {selectedSession.mestre_assistente}
+                        {getMemberDisplayNameForValue(selectedSession.mestre_assistente, members)}
                       </p>
                     </div>
                   )}
                   {selectedSession.explanador && (
                     <div>
                       <p className="text-sm text-muted-foreground">Explanador</p>
-                      <p className="font-medium">{selectedSession.explanador}</p>
+                      <p className="font-medium">{getMemberDisplayNameForValue(selectedSession.explanador, members)}</p>
                     </div>
                   )}
                   {selectedSession.leitor && (
                     <div>
                       <p className="text-sm text-muted-foreground">Leitor</p>
-                      <p className="font-medium">{selectedSession.leitor}</p>
+                      <p className="font-medium">{getMemberDisplayNameForValue(selectedSession.leitor, members)}</p>
                     </div>
                   )}
                 </div>

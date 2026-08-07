@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { useVegetais } from "@/hooks/useVegetais";
 import { useMembers } from "@/hooks/useMembers";
+import { getMemberDisplayName } from "@/lib/memberDisplay";
 import { SESSION_TYPES, TYPES_WITH_EXPLANADOR_LEITOR, PARTICIPANT_LABELS, Participants, ConsumptionSource } from "@/types/database";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -73,7 +74,7 @@ export default function NovaSessao() {
   const { data: members } = useMembers();
 
   // Use only members table for autocomplete
-  const memberNames = members?.map((m) => m.name) || [];
+  const memberNames = members?.map(getMemberDisplayName) || [];
 
   // Form state
   const [basicData, setBasicData] = useState({
@@ -771,17 +772,17 @@ export default function NovaSessao() {
         </datalist>
         <datalist id="eligible-dirigentes-list">
           {eligibleDirigentes.map((member) => (
-            <option key={member.id} value={member.name} />
+            <option key={member.id} value={getMemberDisplayName(member)} />
           ))}
         </datalist>
         <datalist id="eligible-explanadores-list">
           {eligibleExplanadores.map((member) => (
-            <option key={member.id} value={member.name} />
+            <option key={member.id} value={getMemberDisplayName(member)} />
           ))}
         </datalist>
         <datalist id="mestres-assistentes-list">
           {mestresAssistentes.map((member) => (
-            <option key={member.id} value={member.name} />
+            <option key={member.id} value={getMemberDisplayName(member)} />
           ))}
         </datalist>
 

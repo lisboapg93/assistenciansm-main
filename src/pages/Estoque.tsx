@@ -31,6 +31,8 @@ import { Link } from "react-router-dom";
 import { Vegetal } from "@/types/database";
 import { VegetalDetailModal } from "@/components/vegetal/VegetalDetailModal";
 import { useAuthContext } from "@/contexts/AuthContext";
+import { useMembers } from "@/hooks/useMembers";
+import { getMemberDisplayNameForValue } from "@/lib/memberDisplay";
 
 export default function Estoque() {
   const { isEditor } = useAuthContext();
@@ -40,13 +42,14 @@ export default function Estoque() {
 
   const { data: vegetais, isLoading } = useVegetais(showArchived);
   const { data: sessions } = useSessions();
+  const { data: members } = useMembers();
   const totalStock = useTotalStock();
-  const stats = useStatistics(sessions);
+  const stats = useStatistics(sessions, undefined, members);
 
   const filteredVegetais = vegetais?.filter(
     (v) =>
       v.name.toLowerCase().includes(search.toLowerCase()) ||
-      v.master.toLowerCase().includes(search.toLowerCase())
+      getMemberDisplayNameForValue(v.master, members).toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -176,12 +179,12 @@ export default function Estoque() {
                           <div>
                             <p className="font-medium">{vegetal.name}</p>
                             <p className="text-sm text-muted-foreground md:hidden">
-                              {vegetal.master}
+                              {getMemberDisplayNameForValue(vegetal.master, members)}
                             </p>
                           </div>
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
-                          {vegetal.master}
+                          {getMemberDisplayNameForValue(vegetal.master, members)}
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
                           {format(new Date(vegetal.envase_date), "dd/MM/yyyy", {
@@ -226,6 +229,7 @@ export default function Estoque() {
       {/* Detail Modal */}
       <VegetalDetailModal
         vegetal={selectedVegetal}
+        members={members}
         open={!!selectedVegetal}
         onClose={() => setSelectedVegetal(null)}
       />

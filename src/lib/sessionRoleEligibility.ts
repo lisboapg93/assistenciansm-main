@@ -1,6 +1,9 @@
+import { isMemberName } from "@/lib/memberDisplay";
+
 export interface MemberRoleData {
   name: string;
   grau: string | null;
+  chosen_name?: string | null;
 }
 
 const GRAU_QUADRO_DE_MESTRE = "Quadro de Mestre";
@@ -12,10 +15,8 @@ const GRAUS_DIRIGENTE_ESCALA = [
 ];
 const TIPOS_SESSAO_ESCALA = ["Primeira Escala", "Segunda Escala", "Escala Anual"];
 
-const normalizeName = (name: string) => name.trim().toLocaleLowerCase("pt-BR");
-
 const findMember = (members: MemberRoleData[], name: string) =>
-  members.find((member) => normalizeName(member.name) === normalizeName(name));
+  members.find((member) => isMemberName(member, name));
 
 export function getEligibleDirigentes<T extends MemberRoleData>(
   type: string,
@@ -70,7 +71,7 @@ export function isEligibleDirigente(
   if (!name.trim()) return true;
 
   return getEligibleDirigentes(type, members, onlyQuadroDeMestre)
-    .some((member) => normalizeName(member.name) === normalizeName(name));
+    .some((member) => isMemberName(member, name));
 }
 
 export function isEligibleMestreAssistente(name: string, members: MemberRoleData[]) {

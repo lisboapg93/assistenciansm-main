@@ -29,17 +29,20 @@ import { ptBR } from "date-fns/locale";
 import { ArrowDownRight, ArrowUpRight, Settings, Droplets } from "lucide-react";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useMemo } from "react";
+import { MemberDisplayData, getMemberDisplayNameForValue } from "@/lib/memberDisplay";
 
 interface VegetalDetailModalProps {
   vegetal: Vegetal | null;
   open: boolean;
   onClose: () => void;
+  members?: MemberDisplayData[];
 }
 
 export function VegetalDetailModal({
   vegetal,
   open,
   onClose,
+  members,
 }: VegetalDetailModalProps) {
   const { isEditor } = useAuthContext();
   const [saidaQtd, setSaidaQtd] = useState("");
@@ -159,11 +162,13 @@ export function VegetalDetailModal({
         <div className="grid grid-cols-2 gap-4 py-4 border-y border-border">
           <div>
             <p className="text-sm text-muted-foreground">Mestre do Preparo</p>
-            <p className="font-medium">{vegetal.master}</p>
+            <p className="font-medium">{getMemberDisplayNameForValue(vegetal.master, members)}</p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Auxiliar</p>
-            <p className="font-medium">{vegetal.auxiliary || "-"}</p>
+            <p className="font-medium">
+              {vegetal.auxiliary ? getMemberDisplayNameForValue(vegetal.auxiliary, members) : "-"}
+            </p>
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Data Envase</p>
@@ -191,7 +196,9 @@ export function VegetalDetailModal({
           </div>
           <div>
             <p className="text-sm text-muted-foreground">Registrado por</p>
-            <p className="font-medium">{vegetal.registered_by_name || "-"}</p>
+            <p className="font-medium">
+              {vegetal.registered_by_name ? getMemberDisplayNameForValue(vegetal.registered_by_name, members) : "-"}
+            </p>
           </div>
         </div>
 
