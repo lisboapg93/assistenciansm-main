@@ -338,7 +338,7 @@ export default function Membros() {
             </div>
             {usesChosenName(form.grau) && (
               <div className="space-y-2">
-                <Label htmlFor="chosen_name">Nome escolhido</Label>
+                <Label htmlFor="chosen_name">Conhecido(a) como:</Label>
                 <Input
                   id="chosen_name"
                   value={form.chosen_name}
