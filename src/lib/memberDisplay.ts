@@ -11,7 +11,7 @@ const GRAU_CORPO_DO_CONSELHO = "Corpo do Conselho";
 
 function removeTitle(chosenName: string, grau: string) {
   if (grau === GRAU_QUADRO_DE_MESTRE) {
-    return chosenName.replace(/^(mestre|mestra|mestro|m\.)\s*/i, "");
+    return chosenName.replace(/^(mestre|mestro|m\.)\s*/i, "");
   }
 
   return chosenName.replace(/^(conselheiro|conselheira|c\.)\s*/i, "");
@@ -26,7 +26,7 @@ export function usesChosenName(grau: string | null) {
 }
 
 /**
- * Strips the degree title (e.g. "Mestre", "Mestra", "M.") from a chosen name
+ * Strips the degree title (e.g. "Mestre", "M.") from a chosen name
  * being typed, so the UI can preview the final display name before saving.
  */
 export function stripChosenNameTitle(chosenName: string, grau: string | null) {

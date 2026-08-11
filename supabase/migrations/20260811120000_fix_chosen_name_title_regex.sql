@@ -1,11 +1,12 @@
--- The duplicate-detection trigger stripped only "mestre"/"mestra" and
+-- The duplicate-detection trigger stripped only "mestre" and
 -- "conselheiro"/"conselheira" titles, missing the "M."/"C." abbreviation and
 -- the "mestro" variant that the client already recognizes. This made the
 -- database-side check disagree with the display name computed in the app
 -- (src/lib/memberDisplay.ts), so a chosen name typed with the abbreviated
 -- prefix (e.g. "M. João Silva") was not matched against an equivalent
 -- existing member. Align the regex with the client so both layers treat the
--- same names as duplicates.
+-- same names as duplicates. ("Mestra" is not used: the feminine title for
+-- this degree is "Conselheira".)
 CREATE OR REPLACE FUNCTION public.prevent_member_display_name_duplicates()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -21,7 +22,7 @@ BEGIN
         OR public.person_name_key(
           CASE member.grau
             WHEN 'Quadro de Mestre' THEN
-              'M. ' || regexp_replace(member.chosen_name, '^(mestre|mestra|mestro|m\.)\s*', '', 'i')
+              'M. ' || regexp_replace(member.chosen_name, '^(mestre|mestro|m\.)\s*', '', 'i')
             WHEN 'Corpo do Conselho' THEN
               'C. ' || regexp_replace(member.chosen_name, '^(conselheiro|conselheira|c\.)\s*', '', 'i')
             ELSE NULL
