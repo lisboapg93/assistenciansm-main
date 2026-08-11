@@ -32,7 +32,7 @@ import {
 import { toast } from "sonner";
 import { Users, Plus, Pencil, Trash2, Search, UserCheck } from "lucide-react";
 import { getErrorMessage, logApplicationError } from "@/lib/errorLogging";
-import { getMemberDisplayName, usesChosenName } from "@/lib/memberDisplay";
+import { getMemberDisplayName, stripChosenNameTitle, usesChosenName } from "@/lib/memberDisplay";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -352,7 +352,7 @@ export default function Membros() {
                   placeholder={form.grau === "Quadro de Mestre" ? "Ex.: Mestre Marcio Cruz" : "Ex.: Conselheira Mariana Lima"}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Será exibido como {form.grau === "Quadro de Mestre" ? "M." : "C."} {form.chosen_name.replace(/^(mestre|mestra|m\.|conselheiro|conselheira|c\.)\s*/i, "") || "Nome escolhido"}.
+                  Será exibido como {form.grau === "Quadro de Mestre" ? "M." : "C."} {stripChosenNameTitle(form.chosen_name, form.grau) || "Nome escolhido"}.
                 </p>
                 {editingMember && !editingMember.hasChosenName && editingMember.grau === form.grau && (
                   <p className="text-xs text-muted-foreground">

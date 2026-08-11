@@ -11,10 +11,10 @@ const GRAU_CORPO_DO_CONSELHO = "Corpo do Conselho";
 
 function removeTitle(chosenName: string, grau: string) {
   if (grau === GRAU_QUADRO_DE_MESTRE) {
-    return chosenName.replace(/^(mestr[eo]|m\.)\s*/i, "");
+    return chosenName.replace(/^(mestre|mestra|mestro|m\.)\s*/i, "");
   }
 
-  return chosenName.replace(/^(conselheir[oa]|c\.)\s*/i, "");
+  return chosenName.replace(/^(conselheiro|conselheira|c\.)\s*/i, "");
 }
 
 function removeDisplayPrefix(name: string) {
@@ -23,6 +23,15 @@ function removeDisplayPrefix(name: string) {
 
 export function usesChosenName(grau: string | null) {
   return grau === GRAU_QUADRO_DE_MESTRE || grau === GRAU_CORPO_DO_CONSELHO;
+}
+
+/**
+ * Strips the degree title (e.g. "Mestre", "Mestra", "M.") from a chosen name
+ * being typed, so the UI can preview the final display name before saving.
+ */
+export function stripChosenNameTitle(chosenName: string, grau: string | null) {
+  if (!usesChosenName(grau)) return chosenName;
+  return removeTitle(chosenName, grau);
 }
 
 export function getMemberDisplayName(member: MemberDisplayData) {
