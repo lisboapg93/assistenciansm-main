@@ -11,7 +11,7 @@ const GRAU_CORPO_DO_CONSELHO = "Corpo do Conselho";
 
 function removeTitle(chosenName: string, grau: string) {
   if (grau === GRAU_QUADRO_DE_MESTRE) {
-    return chosenName.replace(/^(mestre|mestro|m\.)\s*/i, "");
+    return chosenName.replace(/^(mestre|m\.)\s*/i, "");
   }
 
   return chosenName.replace(/^(conselheiro|conselheira|c\.)\s*/i, "");
