@@ -61,7 +61,7 @@ import {
 import { CsvImportDialog } from "@/components/session/CsvImportDialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePaginatedSessions, useDeleteSession } from "@/hooks/useSessions";
-import { Session, SESSION_TYPES, PARTICIPANT_LABELS } from "@/types/database";
+import { Session, SESSION_TYPES } from "@/types/database";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -537,22 +537,7 @@ export default function Historico() {
                 {/* Participants */}
                 <div>
                   <h4 className="text-sm font-medium mb-2">Participantes</h4>
-                  <div className="grid grid-cols-3 gap-2">
-                    {Object.entries(selectedSession.participants).map(
-                      ([key, value]) => (
-                        <div
-                          key={key}
-                          className="p-2 rounded-lg bg-muted/50 text-center"
-                        >
-                          <p className="text-xs text-muted-foreground">
-                            {PARTICIPANT_LABELS[key as keyof typeof PARTICIPANT_LABELS] || key}
-                          </p>
-                          <p className="font-medium">{value}</p>
-                        </div>
-                      )
-                    )}
-                  </div>
-                  <div className="mt-2 p-3 rounded-lg bg-primary/10 text-center">
+                  <div className="p-3 rounded-lg bg-primary/10 text-center">
                     <p className="text-sm text-muted-foreground">Total</p>
                     <p className="text-xl font-bold text-primary">
                       {selectedSession.total_participants}
