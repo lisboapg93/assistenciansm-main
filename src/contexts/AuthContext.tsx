@@ -64,13 +64,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   useEffect(() => {
-    // Set up auth state listener FIRST
+    // onAuthStateChange já emite o evento INITIAL_SESSION com a sessão atual
+    // logo após o subscribe, cobrindo a verificação inicial. Chamar
+    // supabase.auth.getSession() em paralelo aqui gerava uma corrida: se essa
+    // chamada resolvesse depois de um login (evento SIGNED_IN), ela sobrescrevia
+    // o estado com o valor antigo (capturado antes do login) e travava a tela
+    // de carregamento até um refresh. Por isso usamos só o listener.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
         setIsLoading(true);
         setSession(session);
         setUser(session?.user ?? null);
-        
+
         if (session?.user) {
           // Consultas ao Supabase não devem ser aguardadas dentro deste callback.
           // Agenda a busca do papel para concluir a transição logo após o evento.
@@ -83,18 +88,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     );
-
-    // Then check for existing session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        await fetchUserRole(session.user.id);
-      }
-      
-      setIsLoading(false);
-    });
 
     return () => subscription.unsubscribe();
   }, []);
