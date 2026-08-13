@@ -93,7 +93,8 @@ export function AppSidebar() {
       {/* Sidebar */}
       <aside
         className={cn(
-          "fixed left-0 top-0 z-40 h-screen bg-sidebar border-r border-sidebar-border transition-all duration-300",
+          "fixed left-0 top-16 z-40 h-[calc(100vh-4rem)] bg-sidebar border-r border-sidebar-border transition-all duration-300",
+          "md:top-0 md:h-screen",
           isCollapsed ? "w-16" : "w-64",
           isMobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         )}
