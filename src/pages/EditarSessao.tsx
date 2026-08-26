@@ -40,9 +40,14 @@ import { getErrorMessage } from "@/lib/errorLogging";
 export default function EditarSessao() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { data: session, isLoading } = useSession(id);
+  const { data: session, isLoading: isLoadingSession } = useSession(id);
   const updateSession = useUpdateSession();
-  const { data: members } = useMembers();
+  const { data: members, isLoading: isLoadingMembers } = useMembers();
+  // Só libera o formulário quando sessão E membros já chegaram — evita a
+  // janela em que o usuário começa a editar antes dos membros carregarem e o
+  // efeito de sincronização abaixo, ao vê-los chegar, reseta o formulário
+  // inteiro por cima do que já foi digitado.
+  const isLoading = isLoadingSession || isLoadingMembers;
 
   const [basicData, setBasicData] = useState({
     date: "",

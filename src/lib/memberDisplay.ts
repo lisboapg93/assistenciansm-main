@@ -7,7 +7,7 @@ export interface MemberDisplayData {
 // accent-insensitive do banco (person_name_key) — texto livre digitado em
 // sessões (explanador/leitor/dirigente) nem sempre reproduz os acentos do
 // cadastro do membro.
-const normalizeName = (name: string) =>
+export const normalizeName = (name: string) =>
   name
     .trim()
     .normalize("NFD")

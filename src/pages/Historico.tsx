@@ -143,12 +143,15 @@ export default function Historico() {
   // Deletar o único item de uma página (ex.: a última página) reduz
   // totalPages sem que `page` acompanhe, deixando a tabela "vazia" com dados
   // restantes só na página anterior. Corrige o índice quando ele fica fora
-  // do intervalo válido após o total encolher.
+  // do intervalo válido após o total encolher. Só roda com `!isLoading`:
+  // enquanto uma página nunca buscada antes ainda carrega, sessionPage é
+  // undefined e totalPages cai para 1 momentaneamente, o que faria isso
+  // "clampar" de volta pra página 0 a cada avanço de página normal.
   useEffect(() => {
-    if (page > totalPages - 1) {
+    if (!isLoading && page > totalPages - 1) {
       setPage(Math.max(0, totalPages - 1));
     }
-  }, [page, totalPages]);
+  }, [isLoading, page, totalPages]);
 
   const handleEdit = (sessionId: string) => {
     // For now, just close the modal - edit functionality can be added later

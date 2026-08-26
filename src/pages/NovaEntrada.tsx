@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { getErrorMessage, logApplicationError } from "@/lib/errorLogging";
+import { getErrorMessage } from "@/lib/errorLogging";
 import { useNavigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -59,14 +59,11 @@ export default function NovaEntrada() {
     setIsAddingMembers(true);
     try {
       for (const name of namesToAdd) {
+        // addMemberIfNotExists já registra o erro internamente (logAndThrow)
+        // antes de lançar; só tratamos aqui pra dar feedback ao usuário.
         await addMemberIfNotExists(name);
       }
     } catch (error: unknown) {
-      await logApplicationError(error, {
-        location: "NovaEntrada.addMembers",
-        operation: "create",
-        entity: "members",
-      });
       toast.error(getErrorMessage(error) || "Erro ao registrar responsáveis do lote");
       setIsAddingMembers(false);
       return;

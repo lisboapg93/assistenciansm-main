@@ -148,7 +148,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (timeoutId) window.clearTimeout(timeoutId);
 
       const lastActivity = Number(localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY));
-      const elapsedTime = Number.isFinite(lastActivity) ? Date.now() - lastActivity : 0;
+      // Number(null) é 0 (finito), não NaN — sem essa checagem extra de > 0,
+      // uma chave ausente é lida como "última atividade na época Unix",
+      // dando um remainingTime enormemente negativo e deslogando na hora.
+      const elapsedTime = Number.isFinite(lastActivity) && lastActivity > 0 ? Date.now() - lastActivity : 0;
       const remainingTime = INACTIVITY_TIMEOUT_MS - elapsedTime;
 
       if (remainingTime <= 0) {
