@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { SESSION_TYPES, Participants, Consumption } from "@/types/database";
 import { logApplicationError } from "@/lib/errorLogging";
+import { addMemberIfNotExists } from "@/hooks/useMembers";
 
 interface CsvImportDialogProps {
   open: boolean;
@@ -138,7 +139,14 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
   };
 
   const parseNumber = (value: string): number => {
-    const num = parseFloat(value?.replace(",", ".") || "0");
+    const trimmed = value?.trim() || "0";
+    // Formato pt-BR usa "." como separador de milhar e "," como decimal
+    // (ex.: "1.234,50"). Só remove os pontos quando há vírgula decimal,
+    // para não corromper um valor já em formato simples (ex.: "10.5").
+    const normalized = trimmed.includes(",")
+      ? trimmed.replace(/\./g, "").replace(",", ".")
+      : trimmed;
+    const num = parseFloat(normalized);
     return isNaN(num) ? 0 : num;
   };
 
@@ -485,18 +493,11 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
 
           for (const name of names) {
             if (name) {
-              const { error: memberError } = await supabase
-                .from("members")
-                .upsert({ name }, { onConflict: "name", ignoreDuplicates: true });
-
-              if (memberError) {
-                await logApplicationError(memberError, {
-                  location: "CsvImportDialog.upsertMember",
-                  operation: "import",
-                  entity: "members",
-                  metadata: { row: rowIndex + 1 },
-                });
-              }
+              // addMemberIfNotExists já registra o erro internamente
+              // (logAndThrow) antes de lançar; aqui só evitamos que uma
+              // falha ao vincular um membro derrube o restante da importação,
+              // que já foi concluída com sucesso para esta sessão.
+              await addMemberIfNotExists(name).catch(() => {});
             }
           }
         }

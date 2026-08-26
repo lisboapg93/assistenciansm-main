@@ -27,6 +27,7 @@ import { useStatistics } from "@/hooks/useStatistics";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { parseDbDateToLocal } from "@/lib/date";
 import { Link } from "react-router-dom";
 import { Vegetal } from "@/types/database";
 import { VegetalDetailModal } from "@/components/vegetal/VegetalDetailModal";
@@ -187,7 +188,7 @@ export default function Estoque() {
                           {getMemberDisplayNameForValue(vegetal.master, members)}
                         </TableCell>
                         <TableCell className="hidden md:table-cell">
-                          {format(new Date(vegetal.envase_date), "dd/MM/yyyy", {
+                          {format(parseDbDateToLocal(vegetal.envase_date), "dd/MM/yyyy", {
                             locale: ptBR,
                           })}
                         </TableCell>

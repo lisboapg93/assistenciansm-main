@@ -32,9 +32,10 @@ const GRAU_FILTERS = [
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { data: sessions } = useSessions();
-  const { data: members } = useMembers();
+  const { data: sessions, isLoading: isLoadingSessions } = useSessions();
+  const { data: members, isLoading: isLoadingMembers } = useMembers();
   const stats = useStatistics(sessions, undefined, members);
+  const isLoadingDashboard = isLoadingSessions || isLoadingMembers;
   const [modalOpen, setModalOpen] = useState<ModalType>(null);
   const [grauFilters, setGrauFilters] = useState<string[]>([]);
 
@@ -62,7 +63,7 @@ export default function Dashboard() {
     return { naoExplanaram, naoLeram };
   }, [members, sessions]);
 
-  if (stats.totalStock === undefined) {
+  if (isLoadingDashboard) {
     return (
       <MainLayout>
         <div className="space-y-6">

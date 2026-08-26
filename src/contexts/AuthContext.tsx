@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useCallback, useContext, useState, useEffect, useRef, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { User, Session } from "@supabase/supabase-js";
 import { logApplicationError } from "@/lib/errorLogging";
@@ -29,9 +29,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [userRole, setUserRole] = useState<AppRole | null>(null);
+  // Descarta uma resposta de fetchUserRole desatualizada quando um segundo
+  // evento de auth (ex.: SIGNED_IN de outra conta logo após um SIGNED_OUT)
+  // chega antes da primeira consulta terminar.
+  const authEventIdRef = useRef(0);
 
-  // Fetch user role from database
-  const fetchUserRole = async (userId: string) => {
+  // Fetch user role from database. `eventId` identifica o evento de auth que
+  // disparou esta busca; se um evento mais novo já assumiu o estado antes da
+  // consulta terminar, o resultado é descartado para não sobrescrever o papel
+  // da conta correta com o de uma consulta desatualizada.
+  const fetchUserRole = async (userId: string, eventId: number) => {
+    const applyRole = (role: AppRole) => {
+      if (authEventIdRef.current !== eventId) return;
+      setUserRole(role);
+    };
+
     try {
       const { data, error } = await supabase
         .from("user_roles")
@@ -47,11 +59,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           entityId: userId,
         });
         // Default to viewer if can't fetch role
-        setUserRole("viewer");
+        applyRole("viewer");
         return;
       }
 
-      setUserRole(data?.role as AppRole || "viewer");
+      applyRole((data?.role as AppRole) || "viewer");
     } catch (err) {
       await logApplicationError(err, {
         location: "AuthContext.fetchUserRole",
@@ -59,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         entity: "user_roles",
         entityId: userId,
       });
-      setUserRole("viewer");
+      applyRole("viewer");
     }
   };
 
@@ -72,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // de carregamento até um refresh. Por isso usamos só o listener.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, session) => {
+        const eventId = ++authEventIdRef.current;
         setIsLoading(true);
         setSession(session);
         setUser(session?.user ?? null);
@@ -80,7 +93,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // Consultas ao Supabase não devem ser aguardadas dentro deste callback.
           // Agenda a busca do papel para concluir a transição logo após o evento.
           setTimeout(() => {
-            void fetchUserRole(session.user.id).finally(() => setIsLoading(false));
+            void fetchUserRole(session.user.id, eventId).finally(() => {
+              // Um evento mais recente já assumiu o estado; ignora esta resposta.
+              if (authEventIdRef.current !== eventId) return;
+              setIsLoading(false);
+            });
           }, 0);
         } else {
           setUserRole(null);
@@ -147,6 +164,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       scheduleSignOut();
     };
 
+    // O evento "storage" só dispara nas OUTRAS abas, não na que fez a
+    // alteração — reagenda o timer local com base na atividade mais recente
+    // registrada em qualquer aba, evitando que uma aba ociosa deslogue o
+    // usuário enquanto ele está ativo em outra.
+    const handleCrossTabActivity = (event: StorageEvent) => {
+      if (event.key === LAST_ACTIVITY_STORAGE_KEY) {
+        scheduleSignOut();
+      }
+    };
+
     if (localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY)) {
       scheduleSignOut();
     } else {
@@ -154,10 +181,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     ACTIVITY_EVENTS.forEach((eventName) => window.addEventListener(eventName, registerActivity));
+    window.addEventListener("storage", handleCrossTabActivity);
 
     return () => {
       if (timeoutId) window.clearTimeout(timeoutId);
       ACTIVITY_EVENTS.forEach((eventName) => window.removeEventListener(eventName, registerActivity));
+      window.removeEventListener("storage", handleCrossTabActivity);
     };
   }, [user, signOut]);
 

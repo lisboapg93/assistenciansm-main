@@ -28,6 +28,7 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { ArrowDownRight, ArrowUpRight, Settings, Droplets } from "lucide-react";
 import { useAuthContext } from "@/contexts/AuthContext";
+import { toast } from "sonner";
 import { useMemo } from "react";
 import { MemberDisplayData, getMemberDisplayNameForValue } from "@/lib/memberDisplay";
 
@@ -114,7 +115,10 @@ export function VegetalDetailModal({
 
   const handleAjuste = () => {
     const qtd = parseFloat(ajusteQtd);
-    if (isNaN(qtd) || qtd < 0) return;
+    if (isNaN(qtd) || qtd < 0) {
+      toast.error("Quantidade inválida");
+      return;
+    }
 
     const registeredBy = ajusteRegistradoPor.trim();
     updateVegetal.mutate(
@@ -311,7 +315,11 @@ export function VegetalDetailModal({
               </div>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <Button variant="outline" className="w-full" disabled={!ajusteQtd}>
+                  <Button
+                    variant="outline"
+                    className="w-full"
+                    disabled={!ajusteQtd || !Number.isFinite(parseFloat(ajusteQtd)) || parseFloat(ajusteQtd) < 0}
+                  >
                     Aplicar Ajuste
                   </Button>
                 </AlertDialogTrigger>

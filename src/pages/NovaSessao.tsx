@@ -31,6 +31,7 @@ import { SESSION_TYPES, TYPES_WITH_EXPLANADOR_LEITOR, PARTICIPANT_LABELS, Partic
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { registerSessionWithConsumption } from "@/lib/sessionRegistration";
+import { todayLocalIsoDate } from "@/lib/date";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   getDirigenteRuleDescription,
@@ -78,7 +79,7 @@ export default function NovaSessao() {
 
   // Form state
   const [basicData, setBasicData] = useState({
-    date: new Date().toISOString().slice(0, 10),
+    date: todayLocalIsoDate(),
     type: "",
     is_transmissao_assistencia: false,
     segundo_dirigente: "",

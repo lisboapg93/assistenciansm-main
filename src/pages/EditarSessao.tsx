@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -68,9 +68,23 @@ export default function EditarSessao() {
     jovens: 0,
   });
 
-  // Load session data
+  // Load session data. Só reaplica quando a sessão editada muda (ou quando os
+  // membros chegam pela primeira vez, para resolver os nomes exibidos) — um
+  // refetch em segundo plano (ex.: foco na aba) do React Query não deve
+  // sobrescrever edições em andamento do usuário.
+  const initializedRef = useRef<{ sessionId?: string; hasMembers: boolean }>({
+    sessionId: undefined,
+    hasMembers: false,
+  });
+
   useEffect(() => {
-    if (session) {
+    if (!session) return;
+
+    const isNewSession = initializedRef.current.sessionId !== session.id;
+    const membersJustArrived = !initializedRef.current.hasMembers && !!members;
+
+    if (isNewSession || membersJustArrived) {
+      initializedRef.current = { sessionId: session.id, hasMembers: !!members };
       setBasicData({
         date: session.date.slice(0, 10),
         type: session.type,

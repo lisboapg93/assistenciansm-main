@@ -18,3 +18,27 @@ export function parseDbDateToLocal(dateStr: string): Date {
   // Meio-dia reduz risco de mudanças de horário (DST) afetarem o dia
   return new Date(year, month, day, 12, 0, 0, 0);
 }
+
+/**
+ * Constrói um limite de data (meia-noite UTC) a partir de ano/mês(0-based)/dia,
+ * para comparar com colunas timestamptz que guardam o dia calendário em
+ * meia-noite UTC (ex.: filtros de ano/mês em session.date). Usar
+ * `new Date(year, month, day).toISOString()` aqui deslocaria o limite pelo
+ * fuso do navegador, incluindo ou excluindo sessões do dia 1 indevidamente.
+ */
+export function toUtcDateBoundaryIso(year: number, month: number, day: number): string {
+  return new Date(Date.UTC(year, month, day)).toISOString();
+}
+
+/**
+ * Data de hoje no fuso local, como "YYYY-MM-DD". `new Date().toISOString()`
+ * converte para UTC antes de fatiar a data, podendo mostrar o dia seguinte
+ * para usuários em fusos negativos (ex.: Brasil, UTC-3) à noite.
+ */
+export function todayLocalIsoDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}

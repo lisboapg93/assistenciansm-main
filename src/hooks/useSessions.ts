@@ -4,6 +4,7 @@ import { Session, Participants, Consumption } from "@/types/database";
 import type { Database } from "@/integrations/supabase/types";
 import { toast } from "sonner";
 import { logAndThrow } from "@/lib/errorLogging";
+import { toUtcDateBoundaryIso } from "@/lib/date";
 
 type SessionInsert = Database["public"]["Tables"]["session"]["Insert"];
 type SessionUpdate = Database["public"]["Tables"]["session"]["Update"];
@@ -45,19 +46,19 @@ export function useSessions(filters?: SessionFilters) {
       // Filter by last X months (takes priority over year/month)
       if (filters?.lastMonths) {
         const now = new Date();
-        const startDate = new Date(now.getFullYear(), now.getMonth() - filters.lastMonths, now.getDate()).toISOString();
+        const startDate = toUtcDateBoundaryIso(now.getFullYear(), now.getMonth() - filters.lastMonths, now.getDate());
         query = query.gte("date", startDate);
       } else {
         if (filters?.year) {
-          const startDate = new Date(filters.year, 0, 1).toISOString();
-          const endDate = new Date(filters.year + 1, 0, 1).toISOString();
+          const startDate = toUtcDateBoundaryIso(filters.year, 0, 1);
+          const endDate = toUtcDateBoundaryIso(filters.year + 1, 0, 1);
           query = query.gte("date", startDate).lt("date", endDate);
         }
 
         if (filters?.month !== undefined && filters.month >= 0) {
           const year = filters.year || new Date().getFullYear();
-          const startDate = new Date(year, filters.month, 1).toISOString();
-          const endDate = new Date(year, filters.month + 1, 1).toISOString();
+          const startDate = toUtcDateBoundaryIso(year, filters.month, 1);
+          const endDate = toUtcDateBoundaryIso(year, filters.month + 1, 1);
           query = query.gte("date", startDate).lt("date", endDate);
         }
       }
@@ -103,18 +104,18 @@ export function usePaginatedSessions(
 
       if (filters?.lastMonths) {
         const now = new Date();
-        const startDate = new Date(now.getFullYear(), now.getMonth() - filters.lastMonths, now.getDate()).toISOString();
+        const startDate = toUtcDateBoundaryIso(now.getFullYear(), now.getMonth() - filters.lastMonths, now.getDate());
         query = query.gte("date", startDate);
       } else {
         if (filters?.year) {
-          const startDate = new Date(filters.year, 0, 1).toISOString();
-          const endDate = new Date(filters.year + 1, 0, 1).toISOString();
+          const startDate = toUtcDateBoundaryIso(filters.year, 0, 1);
+          const endDate = toUtcDateBoundaryIso(filters.year + 1, 0, 1);
           query = query.gte("date", startDate).lt("date", endDate);
         }
         if (filters?.month !== undefined && filters.month >= 0) {
           const year = filters.year || new Date().getFullYear();
-          const startDate = new Date(year, filters.month, 1).toISOString();
-          const endDate = new Date(year, filters.month + 1, 1).toISOString();
+          const startDate = toUtcDateBoundaryIso(year, filters.month, 1);
+          const endDate = toUtcDateBoundaryIso(year, filters.month + 1, 1);
           query = query.gte("date", startDate).lt("date", endDate);
         }
       }

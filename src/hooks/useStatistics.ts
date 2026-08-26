@@ -81,10 +81,10 @@ export function useStatistics(
       filteredSessions.reduce((sum, s) => sum + s.total_participants, 0) / totalSessions;
 
     // Calculate frequency
-    const dates = filteredSessions.map((s) => new Date(s.date).getTime()).sort();
+    const dates = filteredSessions.map((s) => new Date(s.date).getTime()).sort((a, b) => a - b);
     const totalDays =
-      dates.length > 1 ? (dates[0] - dates[dates.length - 1]) / (1000 * 60 * 60 * 24) : 30;
-    const frequencyDays = Math.abs(totalDays / (totalSessions - 1)) || 30;
+      dates.length > 1 ? (dates[dates.length - 1] - dates[0]) / (1000 * 60 * 60 * 24) : 0;
+    const frequencyDays = totalSessions > 1 ? Math.abs(totalDays / (totalSessions - 1)) || 30 : 30;
 
     // Forecast
     const sessionsRemaining = averageConsumption > 0 ? totalStock / averageConsumption : 0;

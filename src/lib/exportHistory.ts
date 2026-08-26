@@ -51,7 +51,7 @@ export async function exportHistoryToXlsx(sessions: Session[]) {
   if (sourceRows.length) {
     sheets.push("Vegetais utilizados");
     data.push([
-      headerRow(["Data", "Tipo de sessão", "Vegetal", "Quantidade utilizada (L)"]),
+      headerRow(["Data", "Tipo de sessão", "Vegetal", "Quantidade contribuída para a mistura (L)"]),
       ...sourceRows,
     ]);
   }

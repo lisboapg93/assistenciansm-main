@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { getErrorMessage, logApplicationError } from "@/lib/errorLogging";
 import { useNavigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ export default function NovaEntrada() {
   const navigate = useNavigate();
   const createVegetal = useCreateVegetal();
   const { data: members } = useMembers();
+  const [isAddingMembers, setIsAddingMembers] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -54,9 +56,22 @@ export default function NovaEntrada() {
       formData.responsavel_baticao,
     ].filter(Boolean);
 
-    for (const name of namesToAdd) {
-      await addMemberIfNotExists(name);
+    setIsAddingMembers(true);
+    try {
+      for (const name of namesToAdd) {
+        await addMemberIfNotExists(name);
+      }
+    } catch (error: unknown) {
+      await logApplicationError(error, {
+        location: "NovaEntrada.addMembers",
+        operation: "create",
+        entity: "members",
+      });
+      toast.error(getErrorMessage(error) || "Erro ao registrar responsáveis do lote");
+      setIsAddingMembers(false);
+      return;
     }
+    setIsAddingMembers(false);
 
     createVegetal.mutate(
       {
@@ -284,10 +299,10 @@ export default function NovaEntrada() {
                 <Button
                   type="submit"
                   className="flex-1 gap-2"
-                  disabled={createVegetal.isPending}
+                  disabled={isAddingMembers || createVegetal.isPending}
                 >
                   <Save className="h-4 w-4" />
-                  {createVegetal.isPending ? "Salvando..." : "Salvar"}
+                  {isAddingMembers || createVegetal.isPending ? "Salvando..." : "Salvar"}
                 </Button>
               </div>
             </form>

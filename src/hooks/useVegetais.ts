@@ -98,6 +98,7 @@ export function useCreateVegetal() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vegetais"] });
+      queryClient.invalidateQueries({ queryKey: ["stock_movements"] });
       toast.success("Vegetal cadastrado com sucesso!");
     },
     onError: (error) => {

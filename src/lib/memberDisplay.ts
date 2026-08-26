@@ -3,7 +3,16 @@ export interface MemberDisplayData {
   grau: string | null;
 }
 
-const normalizeName = (name: string) => name.trim().toLocaleLowerCase("pt-BR");
+// Acentos são ignorados na comparação, alinhado com o índice único
+// accent-insensitive do banco (person_name_key) — texto livre digitado em
+// sessões (explanador/leitor/dirigente) nem sempre reproduz os acentos do
+// cadastro do membro.
+const normalizeName = (name: string) =>
+  name
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("pt-BR");
 
 const GRAU_QUADRO_DE_MESTRE = "Quadro de Mestre";
 const GRAU_CORPO_DO_CONSELHO = "Corpo do Conselho";
