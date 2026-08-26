@@ -3,7 +3,6 @@ import { isMemberName } from "@/lib/memberDisplay";
 export interface MemberRoleData {
   name: string;
   grau: string | null;
-  chosen_name?: string | null;
 }
 
 const GRAU_QUADRO_DE_MESTRE = "Quadro de Mestre";
@@ -14,6 +13,8 @@ const GRAUS_DIRIGENTE_ESCALA = [
   "Corpo Instrutivo",
 ];
 const TIPOS_SESSAO_ESCALA = ["Primeira Escala", "Segunda Escala", "Escala Anual"];
+
+const normalizeName = (name: string) => name.trim().toLocaleLowerCase("pt-BR");
 
 const findMember = (members: MemberRoleData[], name: string) =>
   members.find((member) => isMemberName(member, name));

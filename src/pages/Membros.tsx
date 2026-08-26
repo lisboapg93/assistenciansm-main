@@ -32,7 +32,7 @@ import {
 import { toast } from "sonner";
 import { Users, Plus, Pencil, Trash2, Search, UserCheck } from "lucide-react";
 import { getErrorMessage, logApplicationError } from "@/lib/errorLogging";
-import { getMemberDisplayName, stripChosenNameTitle, usesChosenName } from "@/lib/memberDisplay";
+import { getMemberDisplayName, usesDegreePrefix } from "@/lib/memberDisplay";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,7 +55,6 @@ type Grau = typeof GRAU_OPTIONS[number] | null;
 
 interface MemberForm {
   name: string;
-  chosen_name: string;
   is_socio_nucleo: boolean;
   grau: Grau;
 }
@@ -76,9 +75,9 @@ export default function Membros() {
   const [search, setSearch] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [editingMember, setEditingMember] = useState<{ id: string; grau: Grau; hasChosenName: boolean } | null>(null);
+  const [editingMember, setEditingMember] = useState<{ id: string; grau: Grau } | null>(null);
   const [deletingMember, setDeletingMember] = useState<{ id: string; name: string } | null>(null);
-  const [form, setForm] = useState<MemberForm>({ name: "", chosen_name: "", is_socio_nucleo: false, grau: null });
+  const [form, setForm] = useState<MemberForm>({ name: "", is_socio_nucleo: false, grau: null });
   const [isSaving, setIsSaving] = useState(false);
 
   const filteredMembers = members?.filter((member) => {
@@ -91,17 +90,16 @@ export default function Membros() {
 
   const openCreateDialog = () => {
     setEditingMember(null);
-    setForm({ name: "", chosen_name: "", is_socio_nucleo: false, grau: null });
+    setForm({ name: "", is_socio_nucleo: false, grau: null });
     setIsDialogOpen(true);
   };
 
-  const openEditDialog = (member: { id: string; name: string; chosen_name: string | null; is_socio_nucleo: boolean; grau: string | null }) => {
+  const openEditDialog = (member: { id: string; name: string; is_socio_nucleo: boolean; grau: string | null }) => {
     setEditingMember({
       id: member.id,
       grau: member.grau as Grau,
-      hasChosenName: Boolean(member.chosen_name?.trim()),
     });
-    setForm({ name: member.name, chosen_name: member.chosen_name || "", is_socio_nucleo: member.is_socio_nucleo, grau: member.grau as Grau });
+    setForm({ name: member.name, is_socio_nucleo: member.is_socio_nucleo, grau: member.grau as Grau });
     setIsDialogOpen(true);
   };
 
@@ -117,22 +115,15 @@ export default function Membros() {
       return;
     }
 
-    const chosenName = form.chosen_name.trim();
-    const canKeepLegacyName = editingMember
-      && usesChosenName(editingMember.grau)
-      && editingMember.grau === form.grau
-      && !editingMember.hasChosenName;
-
-    if (usesChosenName(form.grau) && !chosenName && !canKeepLegacyName) {
-      toast.error("Nome escolhido é obrigatório para mestres e conselheiros");
-      return;
-    }
-
     const comparableName = getComparableName(trimmedName);
+    const comparableNewDisplayName = getComparableName(
+      getMemberDisplayName({ name: trimmedName, grau: form.grau }),
+    );
     const duplicateMember = members?.find((member) =>
       member.id !== editingMember?.id
       && (getComparableName(member.name) === comparableName
-        || getComparableName(getMemberDisplayName(member)) === comparableName),
+        || getComparableName(getMemberDisplayName(member)) === comparableName
+        || getComparableName(member.name) === comparableNewDisplayName),
     );
 
     if (duplicateMember) {
@@ -142,7 +133,6 @@ export default function Membros() {
 
     const memberData = {
       name: trimmedName,
-      chosen_name: usesChosenName(form.grau) ? chosenName : null,
       is_socio_nucleo: form.is_socio_nucleo,
       grau: form.grau,
     };
@@ -341,26 +331,12 @@ export default function Membros() {
                 onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
                 placeholder="Digite o nome do membro"
               />
-            </div>
-            {usesChosenName(form.grau) && (
-              <div className="space-y-2">
-                <Label htmlFor="chosen_name">Conhecido(a) como:</Label>
-                <Input
-                  id="chosen_name"
-                  value={form.chosen_name}
-                  onChange={(e) => setForm((prev) => ({ ...prev, chosen_name: e.target.value }))}
-                  placeholder={form.grau === "Quadro de Mestre" ? "Ex.: Mestre Marcio Cruz" : "Ex.: Conselheira Mariana Lima"}
-                />
+              {usesDegreePrefix(form.grau) && (
                 <p className="text-xs text-muted-foreground">
-                  Será exibido como {form.grau === "Quadro de Mestre" ? "M." : "C."} {stripChosenNameTitle(form.chosen_name, form.grau) || "Nome escolhido"}.
+                  Será exibido como {getMemberDisplayName({ name: form.name.trim() || "Nome", grau: form.grau })}.
                 </p>
-                {editingMember && !editingMember.hasChosenName && editingMember.grau === form.grau && (
-                  <p className="text-xs text-muted-foreground">
-                    Cadastro antigo: se este campo ficar vazio, o nome atual será mantido como está.
-                  </p>
-                )}
-              </div>
-            )}
+              )}
+            </div>
             <div className="space-y-2">
               <Label htmlFor="grau">Grau</Label>
               <Select
