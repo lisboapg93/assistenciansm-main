@@ -52,7 +52,6 @@ export interface Session {
   consumption: Consumption;
   has_photo: boolean;
   has_audio: boolean;
-  registered_by: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -67,7 +66,6 @@ export interface StockMovement {
   vegetal_id: string | null;
   session_id: string | null;
   details: string | null;
-  registered_by: string | null;
   created_at: string;
 }
 

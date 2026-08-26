@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.17"
   }
   graphql_public: {
     Tables: {
@@ -125,7 +125,6 @@ export type Database = {
       }
       session: {
         Row: {
-          chamadas: string | null
           consumption: Json
           created_at: string
           date: string
@@ -133,7 +132,6 @@ export type Database = {
           explanador: string | null
           has_audio: boolean
           has_photo: boolean
-          historias: string | null
           id: string
           leitor: string | null
           mestre_assistente: string | null
@@ -144,7 +142,6 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          chamadas?: string | null
           consumption?: Json
           created_at?: string
           date: string
@@ -152,7 +149,6 @@ export type Database = {
           explanador?: string | null
           has_audio?: boolean
           has_photo?: boolean
-          historias?: string | null
           id?: string
           leitor?: string | null
           mestre_assistente?: string | null
@@ -163,7 +159,6 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          chamadas?: string | null
           consumption?: Json
           created_at?: string
           date?: string
@@ -171,7 +166,6 @@ export type Database = {
           explanador?: string | null
           has_audio?: boolean
           has_photo?: boolean
-          historias?: string | null
           id?: string
           leitor?: string | null
           mestre_assistente?: string | null
@@ -333,6 +327,8 @@ export type Database = {
         }
         Returns: string
       }
+      normalize_person_name: { Args: { p_name: string }; Returns: string }
+      person_name_key: { Args: { p_name: string }; Returns: string }
       register_session_with_consumption: {
         Args: { p_member_names?: Json; p_session: Json; p_sources: Json }
         Returns: string

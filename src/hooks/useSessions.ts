@@ -6,7 +6,6 @@ import { toast } from "sonner";
 import { logAndThrow } from "@/lib/errorLogging";
 import { toUtcDateBoundaryIso } from "@/lib/date";
 
-type SessionInsert = Database["public"]["Tables"]["session"]["Insert"];
 type SessionUpdate = Database["public"]["Tables"]["session"]["Update"];
 
 export interface SessionFilters {
@@ -175,38 +174,12 @@ export function useSession(id: string | undefined) {
   });
 }
 
-export function useCreateSession() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (
-      session: Omit<Session, "id" | "created_at" | "updated_at">
-    ) => {
-      const { data, error } = await supabase
-        .from("session")
-        .insert(session as unknown as SessionInsert)
-        .select()
-        .single();
-
-      if (error) {
-        return logAndThrow(error, {
-          location: "useSessions.create",
-          operation: "create",
-          entity: "session",
-        });
-      }
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      queryClient.invalidateQueries({ queryKey: ["vegetais"] });
-      toast.success("Sessão registrada com sucesso!");
-    },
-    onError: (error) => {
-      toast.error("Erro ao registrar sessão: " + error.message);
-    },
-  });
-}
+// Sessões com consumo são sempre criadas via registerSessionWithConsumption
+// (src/lib/sessionRegistration.ts), que chama a RPC register_session_with_consumption
+// e mantém o ledger de estoque (stock_movement) sincronizado atomicamente.
+// Um useCreateSession que fizesse INSERT direto em "session" bypassaria essa
+// RPC e dessincronizaria o estoque, então não existe aqui de propósito — não
+// adicione um sem passar pela RPC.
 
 export function useUpdateSession() {
   const queryClient = useQueryClient();

@@ -137,14 +137,28 @@ export function useUpdateVegetal() {
         });
       }
 
-      const { data, error } = await supabase
-        .from("vegetal")
-        .update(updates)
-        .eq("id", id)
-        .select()
-        .single();
+      // Trava otimista: quando a atualização mexe em quantity, só aplica se
+      // o valor lido acima ainda for o valor atual no banco. Sem isso, duas
+      // edições concorrentes (ex.: duas saídas registradas ao mesmo tempo)
+      // fariam a segunda sobrescrever a primeira sem avisar ninguém.
+      let query = supabase.from("vegetal").update(updates).eq("id", id);
+      if (updates.quantity !== undefined) {
+        query = query.eq("quantity", currentVegetal.quantity);
+      }
+      const { data, error } = await query.select().single();
 
       if (error) {
+        if (error.code === "PGRST116" && updates.quantity !== undefined) {
+          const concurrencyError = new Error(
+            "A quantidade deste vegetal foi alterada por outra pessoa nesse meio tempo. Recarregue a página e tente novamente."
+          );
+          return logAndThrow(concurrencyError, {
+            location: "useVegetais.update.concurrentQuantityChange",
+            operation: "update",
+            entity: "vegetal",
+            entityId: id,
+          });
+        }
         return logAndThrow(error, {
           location: "useVegetais.update",
           operation: "update",

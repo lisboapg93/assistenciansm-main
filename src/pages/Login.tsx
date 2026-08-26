@@ -30,7 +30,17 @@ export default function Login() {
     const { error } = await signIn(email, password);
 
     if (error) {
-      toast.error("Email ou senha inválidos");
+      // Supabase retorna "Invalid login credentials" para email/senha errados
+      // sem revelar se o email existe. Qualquer outro erro (rede instável,
+      // rate limit, servidor fora do ar) não é sobre a senha — mostrar a
+      // mensagem genérica nesses casos confundia o usuário a tentar de novo
+      // ou trocar a senha à toa.
+      const isInvalidCredentials = error.message?.toLowerCase().includes("invalid login credentials");
+      toast.error(
+        isInvalidCredentials
+          ? "Email ou senha inválidos"
+          : "Não foi possível entrar. Verifique sua conexão e tente novamente."
+      );
       setIsLoading(false);
     } else {
       toast.success("Login realizado com sucesso!");

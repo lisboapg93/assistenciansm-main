@@ -162,8 +162,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       timeoutId = window.setTimeout(() => void signOut(), remainingTime);
     };
 
+    // mousemove/scroll disparam dezenas de vezes por segundo; sem throttle,
+    // cada um gravava no localStorage e reagendava o timeout, podendo
+    // engasgar a UI durante uso normal (arrastar, rolar).
+    const ACTIVITY_THROTTLE_MS = 5000;
+    let lastRegisteredAt = 0;
+
     const registerActivity = () => {
-      localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(Date.now()));
+      const now = Date.now();
+      if (now - lastRegisteredAt < ACTIVITY_THROTTLE_MS) return;
+      lastRegisteredAt = now;
+      localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, String(now));
       scheduleSignOut();
     };
 
