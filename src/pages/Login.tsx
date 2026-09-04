@@ -47,7 +47,7 @@ function getLoginErrorFeedback(error: Error): LoginErrorFeedback {
   ) {
     return {
       category: "supabase_connection",
-      message: "Não foi possível conectar ao serviço de autenticação (Supabase). O sistema abriu, mas o Supabase pode estar indisponível. Tente novamente em alguns minutos.",
+      message: "Não foi possível acessar o serviço no momento. Tente novamente em alguns minutos.",
     };
   }
 
@@ -61,7 +61,7 @@ function getLoginErrorFeedback(error: Error): LoginErrorFeedback {
   if (status !== undefined && status >= 500) {
     return {
       category: "supabase_server",
-      message: "O serviço de autenticação (Supabase) apresentou uma instabilidade. Tente novamente em alguns minutos.",
+      message: "Não foi possível acessar o serviço no momento. Tente novamente em alguns minutos.",
     };
   }
 
@@ -99,6 +99,10 @@ export default function Login() {
       // Credenciais inválidas são uma tentativa de login comum, não uma falha
       // operacional. Os demais casos ficam registrados para diagnóstico.
       if (feedback.category !== "invalid_credentials") {
+        console.info("[Login] Diagnóstico da falha de autenticação", {
+          category: feedback.category,
+          error,
+        });
         void logApplicationError(error, {
           location: "Login.handleLogin",
           operation: "auth",
