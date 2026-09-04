@@ -7,6 +7,69 @@ import { Label } from "@/components/ui/label";
 import { Droplets, LoaderCircle, Lock, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthContext } from "@/contexts/AuthContext";
+import { logApplicationError } from "@/lib/errorLogging";
+
+type LoginErrorCategory = "invalid_credentials" | "offline" | "supabase_connection" | "supabase_server" | "rate_limited" | "unknown";
+
+interface LoginErrorFeedback {
+  category: LoginErrorCategory;
+  message: string;
+}
+
+interface ErrorWithHttpStatus {
+  status?: unknown;
+}
+
+function getLoginErrorFeedback(error: Error): LoginErrorFeedback {
+  const message = error.message.toLowerCase();
+  const status = typeof (error as ErrorWithHttpStatus).status === "number"
+    ? (error as ErrorWithHttpStatus).status
+    : undefined;
+
+  // A API de autenticação deliberadamente não informa se o e-mail existe.
+  if (message.includes("invalid login credentials")) {
+    return { category: "invalid_credentials", message: "Email ou senha inválidos." };
+  }
+
+  if (!navigator.onLine) {
+    return {
+      category: "offline",
+      message: "Você está sem conexão com a internet. Reconecte-se e tente novamente.",
+    };
+  }
+
+  if (
+    message.includes("failed to fetch") ||
+    message.includes("network request failed") ||
+    message.includes("load failed") ||
+    message.includes("name not resolved") ||
+    message.includes("dns")
+  ) {
+    return {
+      category: "supabase_connection",
+      message: "Não foi possível conectar ao serviço de autenticação (Supabase). O sistema abriu, mas o Supabase pode estar indisponível. Tente novamente em alguns minutos.",
+    };
+  }
+
+  if (status === 429 || message.includes("rate limit")) {
+    return {
+      category: "rate_limited",
+      message: "Muitas tentativas de login. Aguarde alguns minutos antes de tentar novamente.",
+    };
+  }
+
+  if (status !== undefined && status >= 500) {
+    return {
+      category: "supabase_server",
+      message: "O serviço de autenticação (Supabase) apresentou uma instabilidade. Tente novamente em alguns minutos.",
+    };
+  }
+
+  return {
+    category: "unknown",
+    message: "Não foi possível entrar. Verifique os dados informados e tente novamente.",
+  };
+}
 
 export default function Login() {
   const navigate = useNavigate();
@@ -30,17 +93,19 @@ export default function Login() {
     const { error } = await signIn(email, password);
 
     if (error) {
-      // Supabase retorna "Invalid login credentials" para email/senha errados
-      // sem revelar se o email existe. Qualquer outro erro (rede instável,
-      // rate limit, servidor fora do ar) não é sobre a senha — mostrar a
-      // mensagem genérica nesses casos confundia o usuário a tentar de novo
-      // ou trocar a senha à toa.
-      const isInvalidCredentials = error.message?.toLowerCase().includes("invalid login credentials");
-      toast.error(
-        isInvalidCredentials
-          ? "Email ou senha inválidos"
-          : "Não foi possível entrar. Verifique sua conexão e tente novamente."
-      );
+      const feedback = getLoginErrorFeedback(error);
+      toast.error(feedback.message);
+
+      // Credenciais inválidas são uma tentativa de login comum, não uma falha
+      // operacional. Os demais casos ficam registrados para diagnóstico.
+      if (feedback.category !== "invalid_credentials") {
+        void logApplicationError(error, {
+          location: "Login.handleLogin",
+          operation: "auth",
+          entity: "authentication",
+          metadata: { category: feedback.category },
+        });
+      }
       setIsLoading(false);
     } else {
       toast.success("Login realizado com sucesso!");
