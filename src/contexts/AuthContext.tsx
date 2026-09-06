@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // disparou esta busca; se um evento mais novo já assumiu o estado antes da
   // consulta terminar, o resultado é descartado para não sobrescrever o papel
   // da conta correta com o de uma consulta desatualizada.
-  const fetchUserRole = async (userId: string, eventId: number) => {
+  const fetchUserRole = useCallback(async (userId: string, eventId: number) => {
     const applyRole = (role: AppRole) => {
       if (authEventIdRef.current !== eventId) return;
       setUserRole(role);
@@ -73,7 +73,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       applyRole("viewer");
     }
-  };
+  }, []);
+
+  // Centraliza a transição de autenticação para que tanto o listener quanto o
+  // retorno explícito do login atualizem o estado da mesma forma. O callback
+  // do Supabase é assíncrono; confirmar aqui a sessão retornada pelo login
+  // evita que a tela volte ao formulário enquanto ele ainda não foi emitido.
+  const synchronizeAuthState = useCallback((nextSession: Session | null) => {
+    const eventId = ++authEventIdRef.current;
+    setIsLoading(true);
+    setSession(nextSession);
+    setUser(nextSession?.user ?? null);
+
+    if (nextSession?.user) {
+      setUserRole(null);
+
+      // Consultas ao Supabase não devem ser aguardadas no callback de auth.
+      setTimeout(() => {
+        void fetchUserRole(nextSession.user.id, eventId).finally(() => {
+          // Um evento mais recente já assumiu o estado; ignora esta resposta.
+          if (authEventIdRef.current !== eventId) return;
+          setIsLoading(false);
+        });
+      }, 0);
+      return;
+    }
+
+    setUserRole(null);
+    setIsLoading(false);
+  }, [fetchUserRole]);
 
   useEffect(() => {
     // onAuthStateChange já emite o evento INITIAL_SESSION com a sessão atual
@@ -83,37 +111,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // o estado com o valor antigo (capturado antes do login) e travava a tela
     // de carregamento até um refresh. Por isso usamos só o listener.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        const eventId = ++authEventIdRef.current;
-        setIsLoading(true);
-        setSession(session);
-        setUser(session?.user ?? null);
-
-        if (session?.user) {
-          // Consultas ao Supabase não devem ser aguardadas dentro deste callback.
-          // Agenda a busca do papel para concluir a transição logo após o evento.
-          setTimeout(() => {
-            void fetchUserRole(session.user.id, eventId).finally(() => {
-              // Um evento mais recente já assumiu o estado; ignora esta resposta.
-              if (authEventIdRef.current !== eventId) return;
-              setIsLoading(false);
-            });
-          }, 0);
-        } else {
-          setUserRole(null);
-          setIsLoading(false);
-        }
-      }
+      (_event, nextSession) => synchronizeAuthState(nextSession)
     );
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [synchronizeAuthState]);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
+
+    // O listener normalmente recebe SIGNED_IN, mas não dependemos somente
+    // dele: a API já devolve a sessão válida nesta resposta.
+    if (!error && data.session) {
+      synchronizeAuthState(data.session);
+    }
+
     return { error: error as Error | null };
   };
 
