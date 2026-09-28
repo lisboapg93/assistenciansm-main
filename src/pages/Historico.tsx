@@ -113,7 +113,7 @@ export default function Historico() {
     year: undefined as number | undefined,
     month: undefined as number | undefined,
     types: [] as string[],
-    lastMonths: undefined as number | undefined,
+    lastMonths: 3,
   });
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null);
