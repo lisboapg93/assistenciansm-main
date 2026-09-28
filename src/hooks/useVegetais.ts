@@ -74,6 +74,7 @@ export function useCreateVegetal() {
           location: "useVegetais.create",
           operation: "create",
           entity: "vegetal",
+          inputPayload: { vegetal },
         });
       }
 
@@ -90,6 +91,12 @@ export function useCreateVegetal() {
           location: "useVegetais.createStockMovement",
           operation: "create",
           entity: "stock_movement",
+          inputPayload: {
+            type: "Entrada",
+            quantity: vegetal.initial_quantity,
+            vegetal_id: data.id,
+            details: `Novo lote cadastrado: ${vegetal.name}`,
+          },
           metadata: { vegetal_id: data.id },
         });
       }
@@ -157,6 +164,7 @@ export function useUpdateVegetal() {
             operation: "update",
             entity: "vegetal",
             entityId: id,
+            inputPayload: { id, updates },
           });
         }
         return logAndThrow(error, {
@@ -164,6 +172,7 @@ export function useUpdateVegetal() {
           operation: "update",
           entity: "vegetal",
           entityId: id,
+          inputPayload: { id, updates },
         });
       }
 
@@ -184,6 +193,12 @@ export function useUpdateVegetal() {
             location: "useVegetais.updateStockMovement",
             operation: "create",
             entity: "stock_movement",
+            inputPayload: {
+              type: movementType,
+              quantity: movementType === "Ajuste" ? quantityDiff : Math.abs(quantityDiff),
+              vegetal_id: id,
+              details: movementDetails || `${movementType} de estoque`,
+            },
             metadata: { vegetal_id: id },
           });
         }

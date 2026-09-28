@@ -46,6 +46,11 @@ export async function registerSessionWithConsumption(
       location: "sessionRegistration.registerWithConsumption",
       operation: "create",
       entity: "session",
+      inputPayload: {
+        session,
+        sources,
+        member_names: memberNames,
+      },
       metadata: {
         source_count: sources.length,
         member_count: memberNames.length,

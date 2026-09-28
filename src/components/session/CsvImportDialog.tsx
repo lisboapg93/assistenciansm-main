@@ -477,6 +477,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
             location: "CsvImportDialog.createSession",
             operation: "import",
             entity: "session",
+            inputPayload: { session },
             metadata: { row: rowIndex + 1 },
           });
           failedCount++;
@@ -506,6 +507,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
           location: "CsvImportDialog.importSession",
           operation: "import",
           entity: "session",
+          inputPayload: { session },
           metadata: { row: rowIndex + 1 },
         });
         failedCount++;

@@ -207,6 +207,7 @@ export function useUpdateSession() {
           operation: "update",
           entity: "session",
           entityId: id,
+          inputPayload: { updates },
         });
       }
       return data;
@@ -234,6 +235,7 @@ export function useDeleteSession() {
           operation: "delete",
           entity: "session",
           entityId: id,
+          inputPayload: { id },
         });
       }
     },

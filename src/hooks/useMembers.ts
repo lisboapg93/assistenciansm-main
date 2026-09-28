@@ -68,6 +68,7 @@ export function useAddMember() {
           location: "useMembers.create",
           operation: "create",
           entity: "members",
+          inputPayload: { name: trimmedName },
         });
       }
       return data;
@@ -104,6 +105,7 @@ export async function addMemberIfNotExists(name: string) {
         location: "addMemberIfNotExists.create",
         operation: "create",
         entity: "members",
+        inputPayload: { name: trimmedName },
       });
     }
   }

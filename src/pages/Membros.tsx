@@ -164,6 +164,9 @@ export default function Membros() {
         operation: editingMember ? "update" : "create",
         entity: "members",
         entityId: editingMember?.id,
+        inputPayload: editingMember
+          ? { id: editingMember.id, updates: memberData }
+          : { member: memberData },
       });
       toast.error(getErrorMessage(error) || "Erro ao salvar membro");
     } finally {
@@ -189,6 +192,7 @@ export default function Membros() {
         operation: "delete",
         entity: "members",
         entityId: deletingMember.id,
+        inputPayload: { id: deletingMember.id, name: deletingMember.name },
       });
       toast.error(getErrorMessage(error) || "Erro ao excluir membro");
     } finally {
