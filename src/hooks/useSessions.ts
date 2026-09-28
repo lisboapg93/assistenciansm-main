@@ -40,7 +40,8 @@ export function useSessions(filters?: SessionFilters) {
       let query = supabase
         .from("session")
         .select("*")
-        .order("date", { ascending: false });
+        .order("date", { ascending: false })
+        .order("id", { ascending: false });
 
       // Filter by last X months (takes priority over year/month)
       if (filters?.lastMonths) {
@@ -99,7 +100,8 @@ export function usePaginatedSessions(
       let query = supabase
         .from("session")
         .select("*", { count: "exact" })
-        .order("date", { ascending: false });
+        .order("date", { ascending: false })
+        .order("id", { ascending: false });
 
       if (filters?.lastMonths) {
         const now = new Date();

@@ -108,7 +108,9 @@ export default function Historico() {
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [filters, setFilters] = useState({
     search: "",
-    year: currentYear as number | undefined,
+    // O histórico é compartilhado entre os perfis. Abrir restringindo ao ano
+    // atual escondia sessões legítimas cadastradas em anos anteriores.
+    year: undefined as number | undefined,
     month: undefined as number | undefined,
     types: [] as string[],
     lastMonths: undefined as number | undefined,
