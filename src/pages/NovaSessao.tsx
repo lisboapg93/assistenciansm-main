@@ -4,6 +4,7 @@ import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { MemberAutocompleteInput } from "@/components/session/MemberAutocompleteInput";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -446,12 +447,10 @@ export default function NovaSessao() {
                     <Label>
                       Dirigente <span className="text-destructive">*</span>
                     </Label>
-                    <Input
-                      list="eligible-dirigentes-list"
+                    <MemberAutocompleteInput
+                      options={eligibleDirigentes.map(getMemberDisplayName)}
                       value={basicData.dirigente}
-                      onChange={(e) =>
-                        setBasicData({ ...basicData, dirigente: e.target.value })
-                      }
+                      onValueChange={(dirigente) => setBasicData({ ...basicData, dirigente })}
                       placeholder="Nome do dirigente"
                       aria-invalid={dirigenteInvalido}
                       className={cn(dirigenteInvalido && "border-destructive focus-visible:ring-destructive")}
@@ -466,12 +465,10 @@ export default function NovaSessao() {
                       <Label>
                         Segundo Dirigente <span className="text-destructive">*</span>
                       </Label>
-                      <Input
-                        list="eligible-dirigentes-list"
+                      <MemberAutocompleteInput
+                        options={eligibleDirigentes.map(getMemberDisplayName)}
                         value={basicData.segundo_dirigente}
-                        onChange={(e) =>
-                          setBasicData({ ...basicData, segundo_dirigente: e.target.value })
-                        }
+                        onValueChange={(segundo_dirigente) => setBasicData({ ...basicData, segundo_dirigente })}
                         placeholder="Nome do segundo dirigente"
                         aria-invalid={segundoDirigenteInvalido}
                         className={cn(segundoDirigenteInvalido && "border-destructive focus-visible:ring-destructive")}
@@ -486,15 +483,10 @@ export default function NovaSessao() {
                     <Label>
                       Mestre Assistente <span className="text-destructive">*</span>
                     </Label>
-                    <Input
-                      list="mestres-assistentes-list"
+                    <MemberAutocompleteInput
+                      options={mestresAssistentes.map(getMemberDisplayName)}
                       value={basicData.mestre_assistente}
-                      onChange={(e) =>
-                        setBasicData({
-                          ...basicData,
-                          mestre_assistente: e.target.value,
-                        })
-                      }
+                      onValueChange={(mestre_assistente) => setBasicData({ ...basicData, mestre_assistente })}
                       placeholder="Nome do mestre assistente"
                       aria-invalid={mestreAssistenteInvalido}
                       className={cn(mestreAssistenteInvalido && "border-destructive focus-visible:ring-destructive")}
@@ -509,12 +501,10 @@ export default function NovaSessao() {
                       <Label>
                         Explanador <span className="text-destructive">*</span>
                       </Label>
-                      <Input
-                        list="eligible-explanadores-list"
+                      <MemberAutocompleteInput
+                        options={eligibleExplanadores.map(getMemberDisplayName)}
                         value={basicData.explanador}
-                        onChange={(e) =>
-                          setBasicData({ ...basicData, explanador: e.target.value })
-                      }
+                        onValueChange={(explanador) => setBasicData({ ...basicData, explanador })}
                       placeholder="Nome do explanador"
                       aria-invalid={explanadorInvalido}
                       className={cn(explanadorInvalido && "border-destructive focus-visible:ring-destructive")}
@@ -524,12 +514,10 @@ export default function NovaSessao() {
                       <Label>
                         Leitor <span className="text-destructive">*</span>
                       </Label>
-                      <Input
-                        list="members-list"
+                      <MemberAutocompleteInput
+                        options={memberNames}
                         value={basicData.leitor}
-                        onChange={(e) =>
-                          setBasicData({ ...basicData, leitor: e.target.value })
-                        }
+                        onValueChange={(leitor) => setBasicData({ ...basicData, leitor })}
                         placeholder="Nome do leitor"
                       />
                     </div>
@@ -747,14 +735,10 @@ export default function NovaSessao() {
 
                     <div className="space-y-2">
                       <Label>Registrado por</Label>
-                      <Input
+                      <MemberAutocompleteInput
+                        options={memberNames}
                         value={consumptionData.registered_by}
-                        onChange={(e) =>
-                          setConsumptionData({
-                            ...consumptionData,
-                            registered_by: e.target.value,
-                          })
-                        }
+                        onValueChange={(registered_by) => setConsumptionData({ ...consumptionData, registered_by })}
                         placeholder="Nome de quem está registrando"
                       />
                     </div>
@@ -764,28 +748,6 @@ export default function NovaSessao() {
             )}
           </CardContent>
         </Card>
-
-        {/* Global datalist for all members - available across all steps */}
-        <datalist id="members-list">
-          {memberNames.map((name) => (
-            <option key={name} value={name} />
-          ))}
-        </datalist>
-        <datalist id="eligible-dirigentes-list">
-          {eligibleDirigentes.map((member) => (
-            <option key={member.id} value={getMemberDisplayName(member)} />
-          ))}
-        </datalist>
-        <datalist id="eligible-explanadores-list">
-          {eligibleExplanadores.map((member) => (
-            <option key={member.id} value={getMemberDisplayName(member)} />
-          ))}
-        </datalist>
-        <datalist id="mestres-assistentes-list">
-          {mestresAssistentes.map((member) => (
-            <option key={member.id} value={getMemberDisplayName(member)} />
-          ))}
-        </datalist>
 
         {/* Navigation */}
         <div className="flex gap-4">
