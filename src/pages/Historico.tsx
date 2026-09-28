@@ -61,6 +61,7 @@ import {
 import { CsvImportDialog } from "@/components/session/CsvImportDialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePaginatedSessions, useDeleteSession } from "@/hooks/useSessions";
+import { supabase } from "@/integrations/supabase/client";
 import { Session, SESSION_TYPES } from "@/types/database";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
@@ -141,6 +142,26 @@ export default function Historico() {
   useEffect(() => {
     setPage(0);
   }, [filters]);
+
+  // Cadastros feitos por outra conta não passam pelo cache deste navegador.
+  // Atualiza a lista ativa assim que o banco recebe uma inclusão, edição ou
+  // exclusão de sessão.
+  useEffect(() => {
+    const channel = supabase
+      .channel("historico-sessoes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "session" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["sessions"] });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   // Deletar o único item de uma página (ex.: a última página) reduz
   // totalPages sem que `page` acompanhe, deixando a tabela "vazia" com dados
