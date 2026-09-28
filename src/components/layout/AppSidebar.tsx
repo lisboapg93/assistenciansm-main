@@ -16,6 +16,7 @@ import {
   Moon,
   Sun,
   Users,
+  ShieldAlert,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ const navItems = [
   { title: "Histórico", path: "/historico", icon: History, hideForAssistant: true },
   { title: "Relatórios", path: "/relatorios", icon: BarChart3, hideForAssistant: true },
   { title: "Membros", path: "/membros", icon: Users, editorOnly: true },
+  { title: "Erros", path: "/erros", icon: ShieldAlert, editorOnly: true },
 ];
 
 export function AppSidebar() {

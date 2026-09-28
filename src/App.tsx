@@ -16,6 +16,7 @@ const EditarSessao = lazy(() => import("./pages/EditarSessao"));
 const Historico = lazy(() => import("./pages/Historico"));
 const Relatorios = lazy(() => import("./pages/Relatorios"));
 const Membros = lazy(() => import("./pages/Membros"));
+const Erros = lazy(() => import("./pages/Erros"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
@@ -77,6 +78,7 @@ function AppRoutes() {
         <Route path="/historico" element={<ProtectedRoute denyAssistant><Historico /></ProtectedRoute>} />
         <Route path="/relatorios" element={<ProtectedRoute denyAssistant><Relatorios /></ProtectedRoute>} />
         <Route path="/membros" element={<ProtectedRoute requiresEditor><Membros /></ProtectedRoute>} />
+        <Route path="/erros" element={<ProtectedRoute requiresEditor><Erros /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </Suspense>
