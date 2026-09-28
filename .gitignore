@@ -28,3 +28,6 @@ assistenciansm-main.code-workspace
 
 # Claude Code project guidance (local only)
 CLAUDE.md
+
+# Codex project guidance (local only)
+AGENTS.md
