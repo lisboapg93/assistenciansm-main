@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Session, Participants, Consumption } from "@/types/database";
 import type { Database } from "@/integrations/supabase/types";
 import { toast } from "sonner";
-import { logAndThrow } from "@/lib/errorLogging";
+import { getErrorMessage, logAndThrow } from "@/lib/errorLogging";
 import { toUtcDateBoundaryIso } from "@/lib/date";
 
 type SessionUpdate = Database["public"]["Tables"]["session"]["Update"];
@@ -218,7 +218,7 @@ export function useUpdateSession() {
       toast.success("Sessão atualizada!");
     },
     onError: (error) => {
-      toast.error("Erro ao atualizar sessão: " + error.message);
+      toast.error("Erro ao atualizar sessão: " + getErrorMessage(error));
     },
   });
 }
@@ -246,7 +246,7 @@ export function useDeleteSession() {
       toast.success("Sessão excluída e consumo de estoque revertido!");
     },
     onError: (error) => {
-      toast.error("Erro ao excluir sessão: " + error.message);
+      toast.error("Erro ao excluir sessão: " + getErrorMessage(error));
     },
   });
 }

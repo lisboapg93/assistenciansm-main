@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
-import { logAndThrow } from "@/lib/errorLogging";
+import { getErrorMessage, logAndThrow } from "@/lib/errorLogging";
 
 type JsonObject = Record<string, unknown>;
 
@@ -107,7 +107,7 @@ export default function Erros() {
         operation: error.operation,
         entity: error.entity,
         entityId: error.entity_id,
-        message: error.error_message,
+        message: getErrorMessage(error.error_message),
         code: null,
         location: error.error_location,
         userId: error.user_id,
@@ -121,7 +121,7 @@ export default function Erros() {
         operation: error.operation,
         entity: error.entity,
         entityId: error.entity_id,
-        message: error.error_message,
+        message: getErrorMessage(error.error_message),
         code: error.error_code,
         location: error.error_location,
         userId: error.user_id,

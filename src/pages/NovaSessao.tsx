@@ -32,6 +32,7 @@ import { SESSION_TYPES, TYPES_WITH_EXPLANADOR_LEITOR, PARTICIPANT_LABELS, Partic
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { registerSessionWithConsumption } from "@/lib/sessionRegistration";
+import { getErrorMessage } from "@/lib/errorLogging";
 import { todayLocalIsoDate } from "@/lib/date";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -51,18 +52,14 @@ const STEPS = [
 ];
 
 function getRegistrationErrorMessage(error: unknown) {
-  if (error instanceof Error) return error.message;
-
   if (typeof error === "object" && error !== null && "message" in error) {
     if ("code" in error && error.code === "PGRST202") {
       return "A função de registro ainda não está disponível no banco. Atualize as migrations do Supabase e tente novamente.";
     }
 
-    const message = error.message;
-    if (typeof message === "string") return message;
   }
 
-  return "erro desconhecido";
+  return getErrorMessage(error);
 }
 
 export default function NovaSessao() {

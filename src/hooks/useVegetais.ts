@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Vegetal } from "@/types/database";
 import { toast } from "sonner";
-import { logAndThrow } from "@/lib/errorLogging";
+import { getErrorMessage, logAndThrow } from "@/lib/errorLogging";
 
 export function useVegetais(showArchived = false) {
   return useQuery({
@@ -109,7 +109,7 @@ export function useCreateVegetal() {
       toast.success("Vegetal cadastrado com sucesso!");
     },
     onError: (error) => {
-      toast.error("Erro ao cadastrar vegetal: " + error.message);
+      toast.error("Erro ao cadastrar vegetal: " + getErrorMessage(error));
     },
   });
 }
@@ -213,7 +213,7 @@ export function useUpdateVegetal() {
       toast.success("Vegetal atualizado!");
     },
     onError: (error) => {
-      toast.error("Erro ao atualizar: " + error.message);
+      toast.error("Erro ao atualizar: " + getErrorMessage(error));
     },
   });
 }

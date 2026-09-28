@@ -21,7 +21,7 @@ interface ErrorWithDetails {
   code?: unknown;
 }
 
-export function getErrorMessage(error: unknown): string {
+function getRawErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
 
   if (typeof error === "object" && error !== null) {
@@ -30,7 +30,72 @@ export function getErrorMessage(error: unknown): string {
   }
 
   if (typeof error === "string" && error.trim()) return error;
-  return "Erro desconhecido";
+  return "";
+}
+
+function isPortugueseMessage(message: string): boolean {
+  return /\b(não|nao|erro|falha|sessão|sessao|usuário|usuario|membro|dados?|campo|obrigatóri|inválid|invalíd|permissão|permissao|estoque|quantidade|já|ja|exist|registro|conexão|conexao|atualiz|exclu|cadastr|salv|encontr|tente|acesso)\b/iu.test(message);
+}
+
+export function getErrorMessage(error: unknown): string {
+  const rawMessage = getRawErrorMessage(error).trim();
+  const normalizedMessage = rawMessage.toLocaleLowerCase("en-US");
+
+  if (!rawMessage) return "Ocorreu um erro inesperado. Tente novamente.";
+  if (isPortugueseMessage(rawMessage)) return rawMessage;
+
+  if (normalizedMessage.includes("invalid login credentials")) {
+    return "E-mail ou senha inválidos.";
+  }
+  if (normalizedMessage.includes("email not confirmed")) {
+    return "Confirme seu e-mail antes de entrar.";
+  }
+  if (normalizedMessage.includes("jwt expired") || normalizedMessage.includes("refresh token")) {
+    return "Sua sessão expirou. Entre novamente para continuar.";
+  }
+  if (
+    normalizedMessage.includes("failed to fetch") ||
+    normalizedMessage.includes("network request failed") ||
+    normalizedMessage.includes("load failed") ||
+    normalizedMessage.includes("networkerror") ||
+    normalizedMessage.includes("fetch failed")
+  ) {
+    return "Não foi possível conectar ao sistema. Verifique sua internet e tente novamente.";
+  }
+  if (normalizedMessage.includes("rate limit") || normalizedMessage.includes("too many requests")) {
+    return "Muitas tentativas em pouco tempo. Aguarde alguns minutos e tente novamente.";
+  }
+  if (normalizedMessage.includes("duplicate key") || normalizedMessage.includes("unique constraint")) {
+    return "Já existe um registro cadastrado com estes dados.";
+  }
+  if (normalizedMessage.includes("foreign key constraint")) {
+    return "Não é possível concluir porque este registro está vinculado a outro.";
+  }
+  if (normalizedMessage.includes("not-null constraint")) {
+    return "Preencha todos os campos obrigatórios.";
+  }
+  if (normalizedMessage.includes("check constraint")) {
+    return "Os dados informados não são válidos.";
+  }
+  if (
+    normalizedMessage.includes("row-level security") ||
+    normalizedMessage.includes("permission denied") ||
+    normalizedMessage.includes("not authorized") ||
+    normalizedMessage.includes("unauthorized")
+  ) {
+    return "Você não tem permissão para realizar esta operação.";
+  }
+  if (normalizedMessage.includes("insufficient") || normalizedMessage.includes("not enough")) {
+    return "Estoque insuficiente para concluir a operação.";
+  }
+  if (normalizedMessage.includes("pgrst202") || normalizedMessage.includes("function") && normalizedMessage.includes("does not exist")) {
+    return "Uma função necessária do sistema não está disponível no momento.";
+  }
+  if (normalizedMessage.includes("pgrst116") || normalizedMessage.includes("0 rows")) {
+    return "O registro solicitado não foi encontrado.";
+  }
+
+  return "Ocorreu um erro inesperado ao processar a operação. Tente novamente.";
 }
 
 function getErrorCode(error: unknown): string | null {
@@ -146,5 +211,5 @@ export async function logAndThrow(
   context: ErrorLogContext,
 ): Promise<never> {
   await logApplicationError(error, context);
-  throw error;
+  throw new Error(getErrorMessage(error));
 }

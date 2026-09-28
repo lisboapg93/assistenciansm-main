@@ -200,7 +200,7 @@ export default function Historico() {
       await exportHistoryToXlsx(sessions);
       toast.success("Backup do histórico exportado com sucesso!");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "erro desconhecido";
+      const message = getErrorMessage(error);
       toast.error(`Não foi possível exportar o histórico: ${message}`);
     } finally {
       setIsExporting(false);
