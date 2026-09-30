@@ -525,6 +525,21 @@ export default function Historico() {
                 </DialogTitle>
               </DialogHeader>
 
+              <div className="space-y-1 text-center text-sm text-muted-foreground">
+                <p>
+                  Cadastrada em {format(new Date(selectedSession.created_at), "dd/MM/yyyy 'às' HH:mm", {
+                    locale: ptBR,
+                  })}
+                </p>
+                {new Date(selectedSession.updated_at) > new Date(selectedSession.created_at) && (
+                  <p>
+                    Atualizada em {format(new Date(selectedSession.updated_at), "dd/MM/yyyy 'às' HH:mm", {
+                      locale: ptBR,
+                    })}
+                  </p>
+                )}
+              </div>
+
               <div className="space-y-4">
                 {/* Basic Info */}
                 <div className="grid grid-cols-2 gap-4 p-4 rounded-lg bg-muted/50">

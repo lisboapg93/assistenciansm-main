@@ -10,35 +10,52 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.17"
-  }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
+      audit_logs: {
+        Row: {
+          action: string
+          actor_id: string | null
+          actor_name: string | null
+          entity_id: string
+          entity_type: string
+          id: string
+          new_data: Json | null
+          occurred_at: string
+          old_data: Json | null
+          origin: string | null
+          related_session_id: string | null
+        }
+        Insert: {
+          action: string
+          actor_id?: string | null
+          actor_name?: string | null
+          entity_id: string
+          entity_type: string
+          id?: string
+          new_data?: Json | null
+          occurred_at?: string
+          old_data?: Json | null
+          origin?: string | null
+          related_session_id?: string | null
+        }
+        Update: {
+          action?: string
+          actor_id?: string | null
+          actor_name?: string | null
+          entity_id?: string
+          entity_type?: string
+          id?: string
+          new_data?: Json | null
+          occurred_at?: string
+          old_data?: Json | null
+          origin?: string | null
+          related_session_id?: string | null
+        }
+        Relationships: []
+      }
       error_logs: {
         Row: {
           entity: string | null
@@ -96,6 +113,48 @@ export type Database = {
           id?: string
           is_socio_nucleo?: boolean
           name?: string
+        }
+        Relationships: []
+      }
+      operation_failure_logs: {
+        Row: {
+          entity: string
+          entity_id: string | null
+          error_code: string | null
+          error_location: string
+          error_message: string
+          id: string
+          input_payload: Json
+          metadata: Json
+          occurred_at: string
+          operation: string
+          user_id: string | null
+        }
+        Insert: {
+          entity: string
+          entity_id?: string | null
+          error_code?: string | null
+          error_location: string
+          error_message: string
+          id?: string
+          input_payload?: Json
+          metadata?: Json
+          occurred_at?: string
+          operation: string
+          user_id?: string | null
+        }
+        Update: {
+          entity?: string
+          entity_id?: string | null
+          error_code?: string | null
+          error_location?: string
+          error_message?: string
+          id?: string
+          input_payload?: Json
+          metadata?: Json
+          occurred_at?: string
+          operation?: string
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -316,6 +375,53 @@ export type Database = {
         Returns: boolean
       }
       is_authenticated: { Args: never; Returns: boolean }
+      list_audit_logs: {
+        Args: {
+          p_action?: string
+          p_actor_query?: string
+          p_entity_type?: string
+          p_limit?: number
+          p_occurred_from?: string
+          p_occurred_until?: string
+          p_offset?: number
+        }
+        Returns: {
+          action: string
+          actor_id: string
+          actor_name: string
+          entity_id: string
+          entity_type: string
+          id: string
+          new_data: Json
+          occurred_at: string
+          old_data: Json
+          origin: string
+          related_session_id: string
+          total_count: number
+        }[]
+      }
+      list_operation_failure_logs: {
+        Args: { p_limit?: number }
+        Returns: {
+          entity: string
+          entity_id: string | null
+          error_code: string | null
+          error_location: string
+          error_message: string
+          id: string
+          input_payload: Json
+          metadata: Json
+          occurred_at: string
+          operation: string
+          user_id: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "operation_failure_logs"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       log_application_error: {
         Args: {
           p_entity?: string
@@ -324,6 +430,19 @@ export type Database = {
           p_error_message: string
           p_metadata?: Json
           p_operation?: string
+        }
+        Returns: string
+      }
+      log_operation_failure: {
+        Args: {
+          p_entity: string
+          p_entity_id?: string
+          p_error_code?: string
+          p_error_location: string
+          p_error_message: string
+          p_input_payload?: Json
+          p_metadata?: Json
+          p_operation: string
         }
         Returns: string
       }
@@ -351,12 +470,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -380,11 +499,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -405,11 +524,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -430,11 +549,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -447,11 +566,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -461,9 +580,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       app_role: ["viewer", "editor", "assistant"],
