@@ -42,3 +42,24 @@ export function todayLocalIsoDate(): string {
   const day = String(now.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
 }
+
+/**
+ * Exibe um instante no horário de Fortaleza (UTC-3), para que todos os
+ * usuários vejam o mesmo horário independentemente do fuso do dispositivo.
+ */
+export function formatBrazilianDateTime(value: string | Date): string {
+  const parts = new Intl.DateTimeFormat("pt-BR", {
+    timeZone: "America/Fortaleza",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(value));
+
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value;
+
+  return `${part("day")}/${part("month")}/${part("year")} às ${part("hour")}:${part("minute")}`;
+}

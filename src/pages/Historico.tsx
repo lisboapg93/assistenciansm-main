@@ -66,7 +66,7 @@ import { Session, SESSION_TYPES } from "@/types/database";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { parseDbDateToLocal } from "@/lib/date";
+import { formatBrazilianDateTime, parseDbDateToLocal } from "@/lib/date";
 import { Badge } from "@/components/ui/badge";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useMembers } from "@/hooks/useMembers";
@@ -530,15 +530,11 @@ export default function Historico() {
                 </DialogTitle>
                 <div className="space-y-1 text-left text-sm text-muted-foreground">
                   <p>
-                    Cadastrada em {format(new Date(selectedSession.created_at), "dd/MM/yyyy 'às' HH:mm", {
-                      locale: ptBR,
-                    })}
+                    Cadastrado em {formatBrazilianDateTime(selectedSession.created_at)}
                   </p>
                   {new Date(selectedSession.updated_at) > new Date(selectedSession.created_at) && (
                     <p>
-                      Atualizada em {format(new Date(selectedSession.updated_at), "dd/MM/yyyy 'às' HH:mm", {
-                        locale: ptBR,
-                      })}
+                      Atualizado em {formatBrazilianDateTime(selectedSession.updated_at)}
                     </p>
                   )}
                 </div>
