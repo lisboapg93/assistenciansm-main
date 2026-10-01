@@ -528,22 +528,21 @@ export default function Historico() {
                   <Calendar className="h-5 w-5 text-primary" />
                   Detalhes da Sessão ({selectedSession.type})
                 </DialogTitle>
-              </DialogHeader>
-
-              <div className="space-y-1 text-center text-sm text-muted-foreground">
-                <p>
-                  Cadastrada em {format(new Date(selectedSession.created_at), "dd/MM/yyyy 'às' HH:mm", {
-                    locale: ptBR,
-                  })}
-                </p>
-                {new Date(selectedSession.updated_at) > new Date(selectedSession.created_at) && (
+                <div className="space-y-1 text-left text-sm text-muted-foreground">
                   <p>
-                    Atualizada em {format(new Date(selectedSession.updated_at), "dd/MM/yyyy 'às' HH:mm", {
+                    Cadastrada em {format(new Date(selectedSession.created_at), "dd/MM/yyyy 'às' HH:mm", {
                       locale: ptBR,
                     })}
                   </p>
-                )}
-              </div>
+                  {new Date(selectedSession.updated_at) > new Date(selectedSession.created_at) && (
+                    <p>
+                      Atualizada em {format(new Date(selectedSession.updated_at), "dd/MM/yyyy 'às' HH:mm", {
+                        locale: ptBR,
+                      })}
+                    </p>
+                  )}
+                </div>
+              </DialogHeader>
 
               <div className="space-y-4">
                 {/* Basic Info */}
