@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { format } from "date-fns";
-import { ptBR } from "date-fns/locale";
 import {
   ClipboardList,
   Eye,
@@ -21,6 +19,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import {
+  brazilianDateBoundaryIso,
+  formatBrazilianDateTime,
+  subtractMonthsFromIsoDate,
+  todayBrazilianIsoDate,
+} from "@/lib/date";
 import {
   AuditAction,
   AuditEntityType,
@@ -45,6 +49,54 @@ const entityLabels: Record<AuditEntityType, string> = {
 
 type ActionFilter = AuditAction | "all";
 type EntityFilter = AuditEntityType | "all";
+type AuditData = Record<string, unknown>;
+
+const auditFieldLabels: Record<string, string> = {
+  id: "Identificação",
+  name: "Nome",
+  grau: "Grau",
+  is_socio_nucleo: "Sócio do Núcleo",
+  date: "Data",
+  type: "Tipo",
+  quantity: "Quantidade",
+  initial_quantity: "Quantidade inicial",
+  envase_date: "Data de envase",
+  master: "Mestre responsável",
+  auxiliary: "Auxiliar",
+  mariri_species: "Espécie de mariri",
+  chacrona_species: "Espécie de chacrona",
+  is_archived: "Arquivado",
+  registered_by_name: "Cadastrado por",
+  mensageiro: "Mensageiro",
+  responsavel_chacrona: "Responsável pela chacrona",
+  responsavel_baticao: "Responsável pela batição",
+  dirigente: "Dirigente",
+  explanador: "Explanador",
+  leitor: "Leitor",
+  mestre_assistente: "Mestre assistente",
+  observation: "Observação",
+  participants: "Participantes",
+  total_participants: "Total de participantes",
+  consumption: "Consumo",
+  total_consumed: "Total consumido",
+  is_united: "União de vegetal",
+  sources: "Fontes",
+  vegetal_id: "Lote de vegetal",
+  vegetal_name: "Nome do vegetal",
+  amount_available: "Quantidade disponível",
+  has_photo: "Possui foto",
+  has_audio: "Possui áudio",
+  session_id: "Sessão relacionada",
+  details: "Detalhes",
+  created_at: "Cadastrado em",
+  updated_at: "Atualizado em",
+  mestres: "Mestres",
+  conselheiros: "Conselheiros",
+  instrutivo: "Instrutivo",
+  socios: "Sócios",
+  visitantes: "Visitantes",
+  jovens: "Jovens",
+};
 
 interface FilterState {
   action: ActionFilter;
@@ -54,31 +106,77 @@ interface FilterState {
   occurredTo: string;
 }
 
-const initialFilters: FilterState = {
-  action: "all",
-  entityType: "all",
-  actorQuery: "",
-  occurredFrom: "",
-  occurredTo: "",
-};
+function getInitialFilters(): FilterState {
+  const occurredTo = todayBrazilianIsoDate();
 
-function formatDateTime(value: string) {
-  return format(new Date(value), "dd/MM/yyyy 'às' HH:mm:ss", { locale: ptBR });
+  return {
+    action: "all",
+    entityType: "all",
+    actorQuery: "",
+    occurredFrom: subtractMonthsFromIsoDate(occurredTo, 3),
+    occurredTo,
+  };
 }
 
-function localDateBoundary(value: string, nextDay = false) {
-  if (!value) return undefined;
+function getAuditFieldLabel(field: string) {
+  if (auditFieldLabels[field]) return auditFieldLabels[field];
 
-  const [year, month, day] = value.split("-").map(Number);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
-    return undefined;
+  return field
+    .replace(/_/g, " ")
+    .replace(/^./, (character) => character.toUpperCase());
+}
+
+function formatCalendarDate(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+}
+
+function isAuditData(value: unknown): value is AuditData {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function AuditValue({ field, value }: { field: string; value: unknown }) {
+  if (value === null || value === undefined || value === "") {
+    return <span className="text-muted-foreground">Não informado</span>;
   }
 
-  return new Date(year, month - 1, day + (nextDay ? 1 : 0)).toISOString();
+  if (typeof value === "boolean") return <>{value ? "Sim" : "Não"}</>;
+  if (typeof value === "number") return <>{value.toLocaleString("pt-BR")}</>;
+
+  if (typeof value === "string") {
+    if (field.endsWith("_at")) return <>{formatBrazilianDateTime(value)}</>;
+    if (field === "date" || field.endsWith("_date")) return <>{formatCalendarDate(value)}</>;
+    return <>{value}</>;
+  }
+
+  if (Array.isArray(value)) {
+    return (
+      <ul className="space-y-2">
+        {value.map((item, index) => (
+          <li key={`${field}-${index}`} className="rounded border bg-background p-2">
+            {isAuditData(item) ? <AuditDataDetails data={item} /> : <AuditValue field={field} value={item} />}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
+  if (isAuditData(value)) return <AuditDataDetails data={value} />;
+
+  return <>{String(value)}</>;
 }
 
-function formatAuditData(data: Record<string, unknown> | null) {
-  return data ? JSON.stringify(data, null, 2) : "—";
+function AuditDataDetails({ data }: { data: AuditData }) {
+  return (
+    <dl className="divide-y rounded-lg border bg-background">
+      {Object.entries(data).map(([field, value]) => (
+        <div key={field} className="grid gap-1 p-3 sm:grid-cols-[180px_1fr] sm:gap-3">
+          <dt className="text-muted-foreground">{getAuditFieldLabel(field)}</dt>
+          <dd className="break-words"><AuditValue field={field} value={value} /></dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 function getActorName(entry: AuditLog) {
@@ -99,6 +197,7 @@ function AuditActionBadge({ action }: { action: AuditAction }) {
 
 export default function Atividades() {
   const queryClient = useQueryClient();
+  const [initialFilters] = useState(getInitialFilters);
   const [filters, setFilters] = useState<FilterState>(initialFilters);
   const [page, setPage] = useState(0);
   const [selectedEntry, setSelectedEntry] = useState<AuditLog | null>(null);
@@ -107,8 +206,8 @@ export default function Atividades() {
     action: filters.action === "all" ? undefined : filters.action,
     entityType: filters.entityType === "all" ? undefined : filters.entityType,
     actorQuery: filters.actorQuery,
-    occurredFrom: localDateBoundary(filters.occurredFrom),
-    occurredUntil: localDateBoundary(filters.occurredTo, true),
+    occurredFrom: brazilianDateBoundaryIso(filters.occurredFrom),
+    occurredUntil: brazilianDateBoundaryIso(filters.occurredTo, true),
   }), [filters]);
 
   const { data: auditPage, isLoading, isFetching, isError, refetch } = useAuditLogs(queryFilters, page, PAGE_SIZE);
@@ -125,8 +224,8 @@ export default function Atividades() {
   const hasFilters = filters.action !== "all"
     || filters.entityType !== "all"
     || Boolean(filters.actorQuery)
-    || Boolean(filters.occurredFrom)
-    || Boolean(filters.occurredTo);
+    || filters.occurredFrom !== initialFilters.occurredFrom
+    || filters.occurredTo !== initialFilters.occurredTo;
 
   const updateFilters = (updates: Partial<FilterState>) => {
     setFilters((currentFilters) => ({ ...currentFilters, ...updates }));
@@ -201,7 +300,7 @@ export default function Atividades() {
             {hasFilters && (
               <Button variant="ghost" className="gap-2" onClick={() => updateFilters(initialFilters)}>
                 <X className="h-4 w-4" />
-                Limpar
+                Últimos 3 meses
               </Button>
             )}
           </CardContent>
@@ -242,7 +341,7 @@ export default function Atividades() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="text-sm text-muted-foreground">{formatDateTime(entry.occurredAt)}</p>
+                          <p className="text-sm text-muted-foreground">{formatBrazilianDateTime(entry.occurredAt)}</p>
                           <p className="mt-1 font-medium">{entityLabels[entry.entityType]}</p>
                           <p className="mt-1 truncate text-sm text-muted-foreground">{getActorName(entry)}</p>
                           <p className="mt-1 text-sm text-muted-foreground">{getOriginLabel(entry)}</p>
@@ -269,7 +368,7 @@ export default function Atividades() {
                     <TableBody>
                       {entries.map((entry) => (
                         <TableRow key={entry.id}>
-                          <TableCell className="whitespace-nowrap text-sm">{formatDateTime(entry.occurredAt)}</TableCell>
+                          <TableCell className="whitespace-nowrap text-sm">{formatBrazilianDateTime(entry.occurredAt)}</TableCell>
                           <TableCell className="max-w-56 truncate">{getActorName(entry)}</TableCell>
                           <TableCell><AuditActionBadge action={entry.action} /></TableCell>
                           <TableCell>{entityLabels[entry.entityType]}</TableCell>
@@ -318,7 +417,7 @@ export default function Atividades() {
               </DialogHeader>
               <div className="space-y-4 text-sm">
                 <div className="grid gap-3 rounded-lg bg-muted/50 p-4 sm:grid-cols-2">
-                  <p><span className="text-muted-foreground">Data e hora:</span><br />{formatDateTime(selectedEntry.occurredAt)}</p>
+                  <p><span className="text-muted-foreground">Data e hora:</span><br />{formatBrazilianDateTime(selectedEntry.occurredAt)}</p>
                   <p><span className="text-muted-foreground">Responsável:</span><br />{getActorName(selectedEntry)}</p>
                   <p><span className="text-muted-foreground">Ação:</span><br />{actionLabels[selectedEntry.action]}</p>
                   <p><span className="text-muted-foreground">Item:</span><br />{entityLabels[selectedEntry.entityType]}</p>
@@ -334,16 +433,16 @@ export default function Atividades() {
 
                 {selectedEntry.oldData && (
                   <div>
-                    <p className="mb-1 font-medium">Dados antes da alteração</p>
-                    <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs">{formatAuditData(selectedEntry.oldData)}</pre>
+                    <p className="mb-1 font-medium">Antes da alteração</p>
+                    <AuditDataDetails data={selectedEntry.oldData} />
                   </div>
                 )}
                 {selectedEntry.newData && (
                   <div>
                     <p className="mb-1 font-medium">
-                      {selectedEntry.action === "create" ? "Dados cadastrados" : "Dados após a alteração"}
+                      {selectedEntry.action === "create" ? "Dados cadastrados" : "Após a alteração"}
                     </p>
-                    <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs">{formatAuditData(selectedEntry.newData)}</pre>
+                    <AuditDataDetails data={selectedEntry.newData} />
                   </div>
                 )}
               </div>

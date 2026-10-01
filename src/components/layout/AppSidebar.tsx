@@ -31,7 +31,7 @@ const navItems = [
   { title: "Histórico", path: "/historico", icon: History, hideForAssistant: true },
   { title: "Relatórios", path: "/relatorios", icon: BarChart3, hideForAssistant: true },
   { title: "Membros", path: "/membros", icon: Users, editorOnly: true },
-  { title: "Atividades", path: "/atividades", icon: ClipboardList, editorOnly: true },
+  { title: "Atividades", path: "/atividades", icon: ClipboardList, hideForAssistant: true },
   { title: "Erros", path: "/erros", icon: ShieldAlert, editorOnly: true },
 ];
 

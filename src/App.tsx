@@ -79,7 +79,7 @@ function AppRoutes() {
         <Route path="/historico" element={<ProtectedRoute denyAssistant><Historico /></ProtectedRoute>} />
         <Route path="/relatorios" element={<ProtectedRoute denyAssistant><Relatorios /></ProtectedRoute>} />
         <Route path="/membros" element={<ProtectedRoute requiresEditor><Membros /></ProtectedRoute>} />
-        <Route path="/atividades" element={<ProtectedRoute requiresEditor><Atividades /></ProtectedRoute>} />
+        <Route path="/atividades" element={<ProtectedRoute denyAssistant><Atividades /></ProtectedRoute>} />
         <Route path="/erros" element={<ProtectedRoute requiresEditor><Erros /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
