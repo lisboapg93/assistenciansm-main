@@ -26,10 +26,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Upload, FileText, CheckCircle2, XCircle, AlertTriangle, Download } from "lucide-react";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import { SESSION_TYPES, Participants, Consumption } from "@/types/database";
-import { logApplicationError } from "@/lib/errorLogging";
-import { addMemberIfNotExists } from "@/hooks/useMembers";
+import { SESSION_TYPES, TYPES_WITH_EXPLANADOR_LEITOR, Participants, ConsumptionSource } from "@/types/database";
+import { getErrorMessage } from "@/lib/errorLogging";
+import { useMembers } from "@/hooks/useMembers";
+import { useVegetais } from "@/hooks/useVegetais";
+import { getSessionRoleValidationError } from "@/lib/sessionRoleEligibility";
+import { registerSessionWithConsumption } from "@/lib/sessionRegistration";
 
 interface CsvImportDialogProps {
   open: boolean;
@@ -38,6 +40,7 @@ interface CsvImportDialogProps {
 }
 
 interface ParsedSession {
+  rowNumber: number;
   date: string;
   type: string;
   dirigente: string;
@@ -55,6 +58,7 @@ interface ParsedSession {
   has_photo: boolean;
   has_audio: boolean;
   observation?: string;
+  sources: ConsumptionSource[];
   isValid: boolean;
   errors: string[];
 }
@@ -77,9 +81,14 @@ const CSV_TEMPLATE_HEADERS = [
   "tem_foto",
   "tem_audio",
   "observacao",
+  "fontes_vegetal",
 ];
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDialogProps) {
+  const { data: members } = useMembers();
+  const { data: vegetais } = useVegetais();
   const [file, setFile] = useState<File | null>(null);
   const [parsedData, setParsedData] = useState<ParsedSession[]>([]);
   const [isImporting, setIsImporting] = useState(false);
@@ -122,6 +131,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       "true",
       "false",
       "Observações da sessão",
+      "ID_DO_LOTE:2,5",
     ].join(delimiter);
 
     const csvContent = `${headers}\n${exampleRow}`;
@@ -133,46 +143,42 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
     toast.success("Modelo baixado com sucesso!");
   };
 
-  const parseBoolean = (value: string): boolean => {
+  const parseBoolean = (value: string): boolean | null => {
     const normalized = value?.toLowerCase().trim();
-    return normalized === "true" || normalized === "sim" || normalized === "1" || normalized === "s";
+    if (!normalized || ["false", "não", "nao", "0", "n"].includes(normalized)) return false;
+    if (["true", "sim", "1", "s"].includes(normalized)) return true;
+    return null;
   };
 
-  const parseNumber = (value: string): number => {
-    const trimmed = value?.trim() || "0";
-    // Formato pt-BR usa "." como separador de milhar e "," como decimal
-    // (ex.: "1.234,50"). Só remove os pontos quando há vírgula decimal,
-    // para não corromper um valor já em formato simples (ex.: "10.5").
-    const normalized = trimmed.includes(",")
+  const parseNumber = (value: string): number | null => {
+    const trimmed = value?.trim() || "";
+    if (!trimmed) return null;
+    const normalized = /^\d{1,3}(?:\.\d{3})+,\d+$/.test(trimmed)
       ? trimmed.replace(/\./g, "").replace(",", ".")
-      : trimmed;
-    const num = parseFloat(normalized);
-    return isNaN(num) ? 0 : num;
+      : trimmed.replace(",", ".");
+    if (!/^\d+(?:\.\d+)?$/.test(normalized)) return null;
+    const number = Number(normalized);
+    return Number.isFinite(number) ? number : null;
   };
 
   const parseDate = (value: string): string | null => {
-    // Try different date formats
     const trimmed = value?.trim();
     if (!trimmed) return null;
-
-    // Format: YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-      return trimmed;
+    let year: number;
+    let month: number;
+    let day: number;
+    const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+    const brazilian = /^(\d{2})[/-](\d{2})[/-](\d{4})$/.exec(trimmed);
+    if (iso) {
+      year = Number(iso[1]); month = Number(iso[2]); day = Number(iso[3]);
+    } else if (brazilian) {
+      day = Number(brazilian[1]); month = Number(brazilian[2]); year = Number(brazilian[3]);
+    } else {
+      return null;
     }
-
-    // Format: DD/MM/YYYY
-    if (/^\d{2}\/\d{2}\/\d{4}$/.test(trimmed)) {
-      const [day, month, year] = trimmed.split("/");
-      return `${year}-${month}-${day}`;
-    }
-
-    // Format: DD-MM-YYYY
-    if (/^\d{2}-\d{2}-\d{4}$/.test(trimmed)) {
-      const [day, month, year] = trimmed.split("-");
-      return `${year}-${month}-${day}`;
-    }
-
-    return null;
+    const result = new Date(Date.UTC(year, month - 1, day));
+    if (result.getUTCFullYear() !== year || result.getUTCMonth() !== month - 1 || result.getUTCDate() !== day) return null;
+    return `${year.toString().padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   };
 
   const validateRow = (row: Record<string, string>): ParsedSession => {
@@ -198,24 +204,99 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       errors.push("Mestre Assistente é obrigatório");
     }
 
+    const explanador = row.explanador?.trim() || "";
+    const leitor = row.leitor?.trim() || "";
+    if (TYPES_WITH_EXPLANADOR_LEITOR.includes(type) && (!explanador || !leitor)) {
+      errors.push("Explanador e Leitor são obrigatórios para este tipo de sessão");
+    }
+
+    if (dirigente && mestreAssistente && SESSION_TYPES.some((sessionType) => sessionType === type)) {
+      const roleError = getSessionRoleValidationError({
+        type,
+        dirigente,
+        mestreAssistente,
+        explanador: explanador || undefined,
+        leitor: leitor || undefined,
+        members: members || [],
+      });
+      if (roleError) errors.push(roleError);
+    }
+
+    const countFields = ["mestres", "conselheiros", "instrutivo", "socios", "visitantes", "jovens"] as const;
+    const counts = Object.fromEntries(countFields.map((field) => {
+      const value = row[field]?.trim() ? parseNumber(row[field]) : 0;
+      if (value === null || !Number.isInteger(value) || value < 0) {
+        errors.push(`${field}: informe um inteiro não negativo`);
+        return [field, 0];
+      }
+      return [field, value];
+    })) as Record<(typeof countFields)[number], number>;
+    if (Object.values(counts).reduce((sum, count) => sum + count, 0) <= 0) {
+      errors.push("Informe ao menos um participante");
+    }
+
+    const totalConsumed = parseNumber(row.consumo_total);
+    if (totalConsumed === null || totalConsumed <= 0) errors.push("Consumo total deve ser positivo");
+
+    const isUnited = parseBoolean(row.vegetal_unido);
+    const hasPhoto = parseBoolean(row.tem_foto);
+    const hasAudio = parseBoolean(row.tem_audio);
+    if (isUnited === null) errors.push("vegetal_unido: use sim ou não");
+    if (hasPhoto === null) errors.push("tem_foto: use sim ou não");
+    if (hasAudio === null) errors.push("tem_audio: use sim ou não");
+
+    const sources: ConsumptionSource[] = [];
+    const sourceText = row.fontes_vegetal?.trim() || "";
+    if (!sourceText) {
+      errors.push("Informe os lotes de vegetal usados no consumo");
+    } else {
+      const entries = sourceText.split("|");
+      if (isUnited === false && entries.length !== 1) {
+        errors.push("Sem união, informe apenas um lote");
+      }
+      const seen = new Set<string>();
+      for (const entry of entries) {
+        const [id, rawAmount, extra] = entry.trim().split(":");
+        const vegetalId = id?.trim() || "";
+        if (!UUID_PATTERN.test(vegetalId) || extra !== undefined || seen.has(vegetalId)) {
+          errors.push(`Fonte de vegetal inválida ou repetida: ${entry}`);
+          continue;
+        }
+        seen.add(vegetalId);
+        const vegetal = vegetais?.find((lot) => lot.id === vegetalId);
+        if (!vegetal) {
+          errors.push(`Lote indisponível: ${vegetalId}`);
+          continue;
+        }
+        const amount = rawAmount?.trim()
+          ? parseNumber(rawAmount)
+          : isUnited ? null : totalConsumed;
+        if (amount === null || amount === undefined || amount <= 0 || amount > vegetal.quantity) {
+          errors.push(`Quantidade inválida para o lote ${vegetal.name}`);
+          continue;
+        }
+        sources.push({ vegetal_id: vegetal.id, vegetal_name: vegetal.name, amount_available: amount });
+      }
+      if (totalConsumed !== null && sources.reduce((sum, source) => sum + source.amount_available, 0) < totalConsumed) {
+        errors.push("Consumo maior que o total disponibilizado pelos lotes");
+      }
+    }
+
     return {
+      rowNumber: 0,
       date: date || "",
       type,
       dirigente,
       mestre_assistente: mestreAssistente,
-      explanador: row.explanador?.trim() || undefined,
-      leitor: row.leitor?.trim() || undefined,
-      mestres: parseNumber(row.mestres),
-      conselheiros: parseNumber(row.conselheiros),
-      instrutivo: parseNumber(row.instrutivo),
-      socios: parseNumber(row.socios),
-      visitantes: parseNumber(row.visitantes),
-      jovens: parseNumber(row.jovens),
-      total_consumed: parseNumber(row.consumo_total),
-      is_united: parseBoolean(row.vegetal_unido),
-      has_photo: parseBoolean(row.tem_foto),
-      has_audio: parseBoolean(row.tem_audio),
+      explanador: explanador || undefined,
+      leitor: leitor || undefined,
+      ...counts,
+      total_consumed: totalConsumed ?? 0,
+      is_united: isUnited ?? false,
+      has_photo: hasPhoto ?? false,
+      has_audio: hasAudio ?? false,
       observation: row.observacao?.trim() || undefined,
+      sources,
       isValid: errors.length === 0,
       errors,
     };
@@ -269,6 +350,12 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       return `${rowLabel}: ${e.message}`;
     });
 
+    if (parseErrors.length > 0) {
+      setParseInfo({ delimiter: forcedDelimiter ?? result.meta.delimiter, encoding: opts?.encoding, parseErrors: parseErrors.slice(0, 5) });
+      toast.error("O CSV contém linhas com formato inválido. Corrija o arquivo e tente novamente.");
+      return [];
+    }
+
     const rows = (result.data ?? [])
       .filter((r): r is string[] => Array.isArray(r))
       .map((r) => r.map((c) => String(c ?? "").trim()))
@@ -302,6 +389,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       "tem_foto",
       "tem_audio",
       "observacao",
+      "fontes_vegetal",
     ] as const;
 
     const HEADER_ALIASES: Record<(typeof CANONICAL_COLUMNS)[number], string[]> = {
@@ -322,6 +410,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       tem_foto: ["tem_foto", "foto", "has_photo", "registro_fotografico", "registro_foto", "fotografico"],
       tem_audio: ["tem_audio", "audio", "has_audio", "registro_audio", "gravacao"],
       observacao: ["observacao", "observacao_sessao", "observation", "acontecimento", "acontecimentos", "obs", "observacoes", "acontecimento_na_sessao"],
+      fontes_vegetal: ["fontes_vegetal", "fontes", "lotes_vegetal", "lotes"],
     };
 
     const headerRow = rows[0];
@@ -379,10 +468,17 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       return obj;
     });
 
-    return preparedRows.map(validateRow);
+    return preparedRows.map((row, index) => ({
+      ...validateRow(row),
+      rowNumber: index + (hasHeader ? 2 : 1),
+    }));
   };
 
   const loadTextToPreview = (text: string, meta?: { encoding?: string }) => {
+    if (!members || !vegetais) {
+      toast.error("Aguarde o carregamento dos membros e lotes de vegetal antes de importar.");
+      return;
+    }
     const parsed = parseCSV(text, meta);
     setParsedData(parsed);
     if (parsed.length > 0) {
@@ -438,7 +534,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
     let successCount = 0;
     let failedCount = 0;
 
-    for (const [rowIndex, session] of validSessions.entries()) {
+    for (const session of validSessions) {
       try {
         const participants: Participants = {
           mestres: session.mestres,
@@ -451,65 +547,29 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
 
         const totalParticipants = Object.values(participants).reduce((a, b) => a + b, 0);
 
-        const consumption: Consumption = {
-          total_consumed: session.total_consumed,
-          is_united: session.is_united,
-          sources: [],
-        };
-
-        const { error } = await supabase.from("session").insert({
-          date: new Date(session.date).toISOString(),
+        await registerSessionWithConsumption({
+          date: session.date,
           type: session.type,
           dirigente: session.dirigente,
           mestre_assistente: session.mestre_assistente,
           explanador: session.explanador || null,
           leitor: session.leitor || null,
-          participants: JSON.parse(JSON.stringify(participants)),
+          participants,
           total_participants: totalParticipants,
-          consumption: JSON.parse(JSON.stringify(consumption)),
+          total_consumed: session.total_consumed,
+          is_united: session.is_united,
           has_photo: session.has_photo,
           has_audio: session.has_audio,
           observation: session.observation || null,
-        });
-
-        if (error) {
-          await logApplicationError(error, {
-            location: "CsvImportDialog.createSession",
-            operation: "import",
-            entity: "session",
-            inputPayload: { session },
-            metadata: { row: rowIndex + 1 },
-          });
-          failedCount++;
-        } else {
-          successCount++;
-
-          // Add members to the members table for autocomplete
-          const names = [
-            session.dirigente,
-            session.mestre_assistente,
-            session.explanador,
-            session.leitor,
-          ].filter(Boolean);
-
-          for (const name of names) {
-            if (name) {
-              // addMemberIfNotExists já registra o erro internamente
-              // (logAndThrow) antes de lançar; aqui só evitamos que uma
-              // falha ao vincular um membro derrube o restante da importação,
-              // que já foi concluída com sucesso para esta sessão.
-              await addMemberIfNotExists(name).catch(() => {});
-            }
-          }
-        }
+        }, session.sources, [
+          session.dirigente,
+          session.mestre_assistente,
+          session.explanador,
+          session.leitor,
+        ].filter((name): name is string => Boolean(name)));
+        successCount++;
       } catch (err) {
-        await logApplicationError(err, {
-          location: "CsvImportDialog.importSession",
-          operation: "import",
-          entity: "session",
-          inputPayload: { session },
-          metadata: { row: rowIndex + 1 },
-        });
+        toast.error(`Linha ${session.rowNumber}: ${getErrorMessage(err)}`);
         failedCount++;
       }
     }
@@ -619,8 +679,13 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
                 <AlertDescription>
                   <p className="font-medium mb-2">Formato esperado do CSV:</p>
                   <p className="text-sm text-muted-foreground mb-2">
-                    O arquivo deve conter as colunas: data, tipo, dirigente, mestre_assistente, explanador, leitor, mestres, conselheiros, instrutivo, socios, visitantes, jovens, consumo_total, vegetal_unido, tem_foto, tem_audio, observacao
+                    Inclua a coluna fontes_vegetal. Use ID_DO_LOTE para uma sessão sem união, ou ID_DO_LOTE:quantidade|OUTRO_ID:quantidade para união. Cada importação abate o estoque real.
                   </p>
+                  <div className="text-sm text-muted-foreground max-h-28 overflow-auto mb-2">
+                    {vegetais?.length ? vegetais.map((vegetal) => (
+                      <p key={vegetal.id}>{vegetal.name} ({Number(vegetal.quantity).toFixed(2)} L): <code className="select-all">{vegetal.id}</code></p>
+                    )) : "Nenhum lote disponível no momento."}
+                  </div>
                   <Button variant="outline" size="sm" onClick={downloadTemplate} className="gap-2">
                     <Download className="h-4 w-4" />
                     Baixar Modelo CSV
@@ -680,6 +745,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
                       <TableHead>Dirigente</TableHead>
                       <TableHead>Participantes</TableHead>
                       <TableHead>Consumo</TableHead>
+                      <TableHead>Lotes</TableHead>
                       <TableHead>Foto</TableHead>
                       <TableHead>Áudio</TableHead>
                       <TableHead>Erros</TableHead>
@@ -706,6 +772,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
                           {session.mestres + session.conselheiros + session.instrutivo + session.socios + session.visitantes + session.jovens}
                         </TableCell>
                         <TableCell>{session.total_consumed.toFixed(2)} L</TableCell>
+                        <TableCell className="max-w-[180px] text-xs">{session.sources.map((source) => source.vegetal_name).join(", ") || "-"}</TableCell>
                         <TableCell>
                           {session.has_photo ? (
                             <CheckCircle2 className="h-4 w-4 text-green-500" />

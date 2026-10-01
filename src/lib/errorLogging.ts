@@ -34,7 +34,7 @@ function getRawErrorMessage(error: unknown): string {
 }
 
 function isPortugueseMessage(message: string): boolean {
-  return /\b(não|nao|erro|falha|sessão|sessao|usuário|usuario|membro|dados?|campo|obrigatóri|inválid|invalíd|permissão|permissao|estoque|quantidade|já|ja|exist|registro|conexão|conexao|atualiz|exclu|cadastr|salv|encontr|tente|acesso)\b/iu.test(message);
+  return /\b(não|nao|erro|falha|sessão|sessao|usuário|usuario|membro|dados?|campo|obrigatóri|inválid|invalíd|permissão|permissao|estoque|saldo|vegetal|fontes|insuficiente|quantidade|já|ja|exist|registro|conexão|conexao|atualiz|exclu|cadastr|salv|encontr|tente|acesso)\b/iu.test(message);
 }
 
 export function getErrorMessage(error: unknown): string {
@@ -105,7 +105,8 @@ function getErrorCode(error: unknown): string | null {
 }
 
 function sanitizePayload(value: unknown, depth = 0): JsonValue {
-  if (value === null || typeof value === "boolean") return value;
+  if (value === null) return null;
+  if (typeof value === "boolean") return value;
   if (typeof value === "string") return value.slice(0, 1000);
   if (typeof value === "number") return Number.isFinite(value) ? value : String(value);
   if (depth >= 5) return "[profundidade máxima]";
@@ -211,5 +212,8 @@ export async function logAndThrow(
   context: ErrorLogContext,
 ): Promise<never> {
   await logApplicationError(error, context);
-  throw new Error(getErrorMessage(error));
+  const publicError = new Error(getErrorMessage(error));
+  const code = getErrorCode(error);
+  if (code) Object.assign(publicError, { code });
+  throw publicError;
 }

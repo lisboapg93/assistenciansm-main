@@ -128,10 +128,12 @@ export default function NovaSessao() {
     total_consumed: "",
     is_united: false,
     sources: [] as ConsumptionSource[],
-    registered_by: "",
   });
 
   const totalParticipants = Object.values(participants).reduce((a, b) => a + b, 0);
+  const participantsValid = Object.values(participants).every(
+    (value) => Number.isInteger(value) && value >= 0,
+  ) && totalParticipants > 0;
   const totalAvailable = consumptionData.sources.reduce(
     (sum, s) => sum + s.amount_available,
     0
@@ -176,15 +178,25 @@ export default function NovaSessao() {
 
   const handleSubmit = async () => {
     if (submittingRef.current) return;
-    const totalConsumed = parseFloat(consumptionData.total_consumed);
+    const totalConsumed = Number(consumptionData.total_consumed);
     
-    if (!basicData.type || !basicData.dirigente || !basicData.mestre_assistente) {
+    if (!basicData.date || !basicData.type || !basicData.dirigente || !basicData.mestre_assistente) {
       toast.error("Preencha os campos obrigatórios");
       return;
     }
 
     if (showExplanadorLeitor && (!basicData.explanador || !basicData.leitor)) {
       toast.error("Explanador e Leitor são obrigatórios para este tipo de sessão");
+      return;
+    }
+
+    if (basicData.is_transmissao_assistencia && (!showTransmissaoOption || !basicData.segundo_dirigente.trim())) {
+      toast.error("A transmissão exige um tipo permitido e o segundo dirigente.");
+      return;
+    }
+
+    if (!participantsValid) {
+      toast.error("Informe ao menos um participante e use quantidades inteiras não negativas.");
       return;
     }
 
@@ -213,7 +225,12 @@ export default function NovaSessao() {
       return;
     }
 
-    if (isNaN(totalConsumed) || totalConsumed <= 0) {
+    if (consumptionData.sources.some((source) => !Number.isFinite(source.amount_available) || source.amount_available <= 0)) {
+      toast.error("Informe uma quantidade positiva para cada vegetal selecionado.");
+      return;
+    }
+
+    if (!Number.isFinite(totalConsumed) || totalConsumed <= 0) {
       toast.error("Informe o total consumido");
       return;
     }
@@ -232,7 +249,6 @@ export default function NovaSessao() {
         basicData.mestre_assistente,
         basicData.explanador,
         basicData.leitor,
-        consumptionData.registered_by,
       ].filter(Boolean);
 
       // Build observation with transmissão info
@@ -275,6 +291,7 @@ export default function NovaSessao() {
         queryClient.invalidateQueries({ queryKey: ["sessions"] }),
         queryClient.invalidateQueries({ queryKey: ["vegetais"] }),
         queryClient.invalidateQueries({ queryKey: ["stock_movements"] }),
+        queryClient.invalidateQueries({ queryKey: ["stock_forecast"] }),
         queryClient.invalidateQueries({ queryKey: ["members"] }),
       ]);
       toast.success("Sessão registrada com sucesso!");
@@ -307,12 +324,14 @@ export default function NovaSessao() {
       case 2:
         return true;
       case 3:
-        return totalParticipants > 0;
+        return participantsValid;
       case 4:
         return (
           consumptionData.sources.length > 0 &&
-          parseFloat(consumptionData.total_consumed) > 0 &&
-          parseFloat(consumptionData.total_consumed) <= totalAvailable
+          (consumptionData.is_united || consumptionData.sources.length === 1) &&
+          consumptionData.sources.every((source) => Number.isFinite(source.amount_available) && source.amount_available > 0) &&
+          Number(consumptionData.total_consumed) > 0 &&
+          Number(consumptionData.total_consumed) <= totalAvailable
         );
       default:
         return false;
@@ -730,15 +749,6 @@ export default function NovaSessao() {
                         </div>
                       )}
 
-                    <div className="space-y-2">
-                      <Label>Registrado por</Label>
-                      <MemberAutocompleteInput
-                        options={memberNames}
-                        value={consumptionData.registered_by}
-                        onValueChange={(registered_by) => setConsumptionData({ ...consumptionData, registered_by })}
-                        placeholder="Nome de quem está registrando"
-                      />
-                    </div>
                   </div>
                 )}
               </div>

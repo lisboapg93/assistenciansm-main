@@ -1,4 +1,4 @@
-import { isMemberName, normalizeName } from "@/lib/memberDisplay";
+import { getMemberIdentityKey, isMemberName } from "@/lib/memberDisplay";
 
 export interface MemberRoleData {
   name: string;
@@ -82,7 +82,8 @@ export function isEligibleMestreAssistente(name: string, members: MemberRoleData
 export function isEligibleExplanador(name: string, members: MemberRoleData[]) {
   if (!name.trim()) return true;
 
-  return findMember(members, name)?.grau !== GRAU_QUADRO_DE_SOCIOS;
+  const member = findMember(members, name);
+  return !!member && !!member.grau && member.grau !== GRAU_QUADRO_DE_SOCIOS;
 }
 
 export function getSessionRoleValidationError({
@@ -117,7 +118,8 @@ export function getSessionRoleValidationError({
 
     const duplicatedRole = sessionRoles
       .slice(index + 1)
-      .find(([, otherName]) => otherName?.trim() && normalizeName(otherName) === normalizeName(name));
+      .find(([, otherName]) => otherName?.trim()
+        && getMemberIdentityKey(otherName) === getMemberIdentityKey(name));
 
     if (duplicatedRole) {
       return `A mesma pessoa não pode ser ${role} e ${duplicatedRole[0]} na mesma sessão.`;
@@ -136,7 +138,7 @@ export function getSessionRoleValidationError({
   }
 
   if (explanador?.trim() && !isEligibleExplanador(explanador, members)) {
-    return "Membros do Quadro de Sócios não podem ser explanadores.";
+    return "O explanador deve ser um membro cadastrado e não pode ser do Quadro de Sócios.";
   }
 
   if (mestreAssistente?.trim() && !isEligibleMestreAssistente(mestreAssistente, members)) {

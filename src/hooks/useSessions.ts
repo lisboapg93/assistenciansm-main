@@ -7,6 +7,13 @@ import { getErrorMessage, logAndThrow } from "@/lib/errorLogging";
 import { toUtcDateBoundaryIso } from "@/lib/date";
 
 type SessionUpdate = Database["public"]["Tables"]["session"]["Update"];
+type SessionRow = Database["public"]["Tables"]["session"]["Row"];
+type EditableSessionFields = Partial<Pick<Session,
+  "date" | "type" | "dirigente" | "explanador" | "leitor" |
+  "mestre_assistente" | "observation" | "participants" |
+  "total_participants" | "has_photo" | "has_audio"
+>>;
+const FETCH_PAGE_SIZE = 500;
 
 export interface SessionFilters {
   year?: number;
@@ -33,58 +40,69 @@ const mapSessions = (data: Array<{ participants: unknown; consumption: unknown }
     consumption: session.consumption as Consumption,
   })) as Session[];
 
-export function useSessions(filters?: SessionFilters) {
+function buildSessionsQuery(filters?: SessionFilters, withCount = false) {
+  let query = supabase
+    .from("session")
+    .select("*", withCount ? { count: "exact" } : undefined)
+    .order("date", { ascending: false })
+    .order("id", { ascending: false });
+
+  // Filter by last X months (takes priority over year/month)
+  if (filters?.lastMonths) {
+    const now = new Date();
+    const startDate = toUtcDateBoundaryIso(now.getFullYear(), now.getMonth() - filters.lastMonths, now.getDate());
+    query = query.gte("date", startDate);
+  } else {
+    if (filters?.year) {
+      const startDate = toUtcDateBoundaryIso(filters.year, 0, 1);
+      const endDate = toUtcDateBoundaryIso(filters.year + 1, 0, 1);
+      query = query.gte("date", startDate).lt("date", endDate);
+    }
+
+    if (filters?.month !== undefined && filters.month >= 0) {
+      const year = filters.year || new Date().getFullYear();
+      const startDate = toUtcDateBoundaryIso(year, filters.month, 1);
+      const endDate = toUtcDateBoundaryIso(year, filters.month + 1, 1);
+      query = query.gte("date", startDate).lt("date", endDate);
+    }
+  }
+
+  if (filters?.types?.length) query = query.in("type", filters.types);
+
+  const search = filters?.search ? sanitizeSearch(filters.search) : "";
+  if (search) {
+    query = query.or(
+      `dirigente.ilike.*${search}*,explanador.ilike.*${search}*,leitor.ilike.*${search}*,mestre_assistente.ilike.*${search}*,type.ilike.*${search}*,observation.ilike.*${search}*`,
+    );
+  }
+
+  return query;
+}
+
+export function useSessions(filters?: SessionFilters, enabled = true) {
   return useQuery({
     queryKey: ["sessions", filters],
+    enabled,
     queryFn: async () => {
-      let query = supabase
-        .from("session")
-        .select("*")
-        .order("date", { ascending: false })
-        .order("id", { ascending: false });
-
-      // Filter by last X months (takes priority over year/month)
-      if (filters?.lastMonths) {
-        const now = new Date();
-        const startDate = toUtcDateBoundaryIso(now.getFullYear(), now.getMonth() - filters.lastMonths, now.getDate());
-        query = query.gte("date", startDate);
-      } else {
-        if (filters?.year) {
-          const startDate = toUtcDateBoundaryIso(filters.year, 0, 1);
-          const endDate = toUtcDateBoundaryIso(filters.year + 1, 0, 1);
-          query = query.gte("date", startDate).lt("date", endDate);
+      const rows: SessionRow[] = [];
+      for (let offset = 0; ;) {
+        const { data, error, count } = await buildSessionsQuery(filters, true)
+          .range(offset, offset + FETCH_PAGE_SIZE - 1);
+        if (error) {
+          return logAndThrow(error, {
+            location: "useSessions.list",
+            operation: "read",
+            entity: "session",
+            metadata: { offset, page_size: FETCH_PAGE_SIZE },
+          });
         }
 
-        if (filters?.month !== undefined && filters.month >= 0) {
-          const year = filters.year || new Date().getFullYear();
-          const startDate = toUtcDateBoundaryIso(year, filters.month, 1);
-          const endDate = toUtcDateBoundaryIso(year, filters.month + 1, 1);
-          query = query.gte("date", startDate).lt("date", endDate);
-        }
+        rows.push(...(data || []));
+        if (!data?.length || (count !== null && rows.length >= count)) break;
+        offset += data.length;
       }
 
-      // Filter by multiple types
-      if (filters?.types && filters.types.length > 0) {
-        query = query.in("type", filters.types);
-      }
-
-      const search = filters?.search ? sanitizeSearch(filters.search) : "";
-      if (search) {
-        query = query.or(
-          `dirigente.ilike.*${search}*,explanador.ilike.*${search}*,leitor.ilike.*${search}*,mestre_assistente.ilike.*${search}*,type.ilike.*${search}*,observation.ilike.*${search}*`
-        );
-      }
-
-      const { data, error } = await query;
-      if (error) {
-        return logAndThrow(error, {
-          location: "useSessions.list",
-          operation: "read",
-          entity: "session",
-        });
-      }
-      
-      return mapSessions(data || []);
+      return mapSessions(rows);
     },
   });
 }
@@ -97,41 +115,9 @@ export function usePaginatedSessions(
   return useQuery({
     queryKey: ["sessions", "page", filters, page, pageSize],
     queryFn: async (): Promise<SessionPage> => {
-      let query = supabase
-        .from("session")
-        .select("*", { count: "exact" })
-        .order("date", { ascending: false })
-        .order("id", { ascending: false });
-
-      if (filters?.lastMonths) {
-        const now = new Date();
-        const startDate = toUtcDateBoundaryIso(now.getFullYear(), now.getMonth() - filters.lastMonths, now.getDate());
-        query = query.gte("date", startDate);
-      } else {
-        if (filters?.year) {
-          const startDate = toUtcDateBoundaryIso(filters.year, 0, 1);
-          const endDate = toUtcDateBoundaryIso(filters.year + 1, 0, 1);
-          query = query.gte("date", startDate).lt("date", endDate);
-        }
-        if (filters?.month !== undefined && filters.month >= 0) {
-          const year = filters.year || new Date().getFullYear();
-          const startDate = toUtcDateBoundaryIso(year, filters.month, 1);
-          const endDate = toUtcDateBoundaryIso(year, filters.month + 1, 1);
-          query = query.gte("date", startDate).lt("date", endDate);
-        }
-      }
-
-      if (filters?.types?.length) query = query.in("type", filters.types);
-
-      const search = filters?.search ? sanitizeSearch(filters.search) : "";
-      if (search) {
-        query = query.or(
-          `dirigente.ilike.*${search}*,explanador.ilike.*${search}*,leitor.ilike.*${search}*,mestre_assistente.ilike.*${search}*,type.ilike.*${search}*,observation.ilike.*${search}*`,
-        );
-      }
-
       const offset = page * pageSize;
-      const { data, error, count } = await query.range(offset, offset + pageSize - 1);
+      const { data, error, count } = await buildSessionsQuery(filters, true)
+        .range(offset, offset + pageSize - 1);
       if (error) {
         return logAndThrow(error, {
           location: "useSessions.paginatedList",
@@ -192,7 +178,7 @@ export function useUpdateSession() {
       updates,
     }: {
       id: string;
-      updates: Partial<Session>;
+      updates: EditableSessionFields;
     }) => {
       const { data, error } = await supabase
         .from("session")

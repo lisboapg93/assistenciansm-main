@@ -32,7 +32,7 @@ import {
 import { toast } from "sonner";
 import { Users, Plus, Pencil, Trash2, Search, UserCheck } from "lucide-react";
 import { getErrorMessage, logApplicationError } from "@/lib/errorLogging";
-import { getMemberDisplayName, usesDegreePrefix } from "@/lib/memberDisplay";
+import { getMemberDisplayName, getMemberIdentityKey, normalizeName, usesDegreePrefix } from "@/lib/memberDisplay";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -59,15 +59,6 @@ interface MemberForm {
   grau: Grau;
 }
 
-function getComparableName(name: string) {
-  return name
-    .trim()
-    .replace(/\s+/g, " ")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLocaleLowerCase("pt-BR");
-}
-
 export default function Membros() {
   const { data: members, isLoading } = useMembers();
   const queryClient = useQueryClient();
@@ -81,9 +72,9 @@ export default function Membros() {
   const [isSaving, setIsSaving] = useState(false);
 
   const filteredMembers = members?.filter((member) => {
-    const normalizedSearch = search.toLocaleLowerCase("pt-BR");
-    return member.name.toLocaleLowerCase("pt-BR").includes(normalizedSearch)
-      || getMemberDisplayName(member).toLocaleLowerCase("pt-BR").includes(normalizedSearch);
+    const normalizedSearch = normalizeName(search);
+    return normalizeName(member.name).includes(normalizedSearch)
+      || normalizeName(getMemberDisplayName(member)).includes(normalizedSearch);
   });
 
   const socioCount = members?.filter((m) => m.is_socio_nucleo).length ?? 0;
@@ -115,15 +106,12 @@ export default function Membros() {
       return;
     }
 
-    const comparableName = getComparableName(trimmedName);
-    const comparableNewDisplayName = getComparableName(
+    const comparableNewDisplayName = getMemberIdentityKey(
       getMemberDisplayName({ name: trimmedName, grau: form.grau }),
     );
     const duplicateMember = members?.find((member) =>
       member.id !== editingMember?.id
-      && (getComparableName(member.name) === comparableName
-        || getComparableName(getMemberDisplayName(member)) === comparableName
-        || getComparableName(member.name) === comparableNewDisplayName),
+      && getMemberIdentityKey(getMemberDisplayName(member)) === comparableNewDisplayName,
     );
 
     if (duplicateMember) {

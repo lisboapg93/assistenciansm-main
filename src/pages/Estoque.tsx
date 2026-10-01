@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,18 +35,57 @@ import { VegetalDetailModal } from "@/components/vegetal/VegetalDetailModal";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useMembers } from "@/hooks/useMembers";
 import { getMemberDisplayNameForValue } from "@/lib/memberDisplay";
+import { supabase } from "@/integrations/supabase/client";
+import { logAndThrow } from "@/lib/errorLogging";
+
+interface StockForecast {
+  sessions_remaining: number;
+  months_remaining: number;
+}
+
+type StockForecastRpc = (
+  functionName: "get_stock_forecast",
+) => Promise<{ data: StockForecast | null; error: { message: string } | null }>;
 
 export default function Estoque() {
-  const { isEditor } = useAuthContext();
+  const { isEditor, isAssistant } = useAuthContext();
   const [showArchived, setShowArchived] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedVegetal, setSelectedVegetal] = useState<Vegetal | null>(null);
 
   const { data: vegetais, isLoading } = useVegetais(showArchived);
-  const { data: sessions } = useSessions();
+  const { data: sessions } = useSessions(undefined, !isAssistant);
   const { data: members } = useMembers();
   const totalStock = useTotalStock();
-  const stats = useStatistics(sessions, undefined, members);
+  const stats = useStatistics(isAssistant ? undefined : sessions, undefined, members);
+  const { data: assistantForecast, isError: forecastError } = useQuery({
+    queryKey: ["stock_forecast"],
+    enabled: isAssistant,
+    queryFn: async () => {
+      const rpc = supabase.rpc.bind(supabase) as unknown as StockForecastRpc;
+      const { data, error } = await rpc("get_stock_forecast");
+      if (error) {
+        return logAndThrow(error, {
+          location: "Estoque.getStockForecast",
+          operation: "read",
+          entity: "session",
+        });
+      }
+      return data;
+    },
+  });
+  const sessionsRemaining = isAssistant
+    ? Number(assistantForecast?.sessions_remaining || 0)
+    : stats.sessionsRemaining;
+  const monthsRemaining = isAssistant
+    ? Number(assistantForecast?.months_remaining || 0)
+    : stats.monthsRemaining;
+  const forecastLabel = isAssistant && !assistantForecast
+    ? forecastError ? "Indisponível" : "Carregando..."
+    : `~${Math.floor(sessionsRemaining)} sessões`;
+  const durationLabel = isAssistant && !assistantForecast
+    ? forecastError ? "Indisponível" : "Carregando..."
+    : `~${monthsRemaining.toFixed(1)} meses`;
 
   const filteredVegetais = vegetais?.filter(
     (v) =>
@@ -96,7 +136,7 @@ export default function Estoque() {
                 <div>
                   <p className="text-sm text-muted-foreground">Previsão</p>
                   <p className="text-2xl font-bold">
-                    ~{Math.floor(stats.sessionsRemaining)} sessões
+                    {forecastLabel}
                   </p>
                 </div>
               </div>
@@ -107,7 +147,7 @@ export default function Estoque() {
                 <div>
                   <p className="text-sm text-muted-foreground">Duração</p>
                   <p className="text-2xl font-bold">
-                    ~{stats.monthsRemaining.toFixed(1)} meses
+                    {durationLabel}
                   </p>
                 </div>
               </div>

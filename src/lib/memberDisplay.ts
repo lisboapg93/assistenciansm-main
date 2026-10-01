@@ -10,18 +10,28 @@ export interface MemberDisplayData {
 export const normalizeName = (name: string) =>
   name
     .trim()
+    .replace(/\s+/g, " ")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLocaleLowerCase("pt-BR");
+
+// O título faz parte da identidade exibida: João e M. João podem ser
+// pessoas diferentes, mas Mestre João e M. João são a mesma identificação.
+export function getMemberIdentityKey(name: string) {
+  return normalizeName(name)
+    .replace(/^(mestre|mestra)\s+/, "m. ")
+    .replace(/^(conselheiro|conselheira)\s+/, "c. ")
+    .replace(/^([mc])\.\s*/, "$1. ");
+}
 
 const GRAU_QUADRO_DE_MESTRE = "Quadro de Mestre";
 const GRAU_CORPO_DO_CONSELHO = "Corpo do Conselho";
 
 function removeDisplayPrefix(name: string, grau: string | null) {
   if (grau === GRAU_QUADRO_DE_MESTRE) {
-    return name.replace(/^(mestre|m\.)\s*/i, "");
+    return name.replace(/^(?:(?:mestre|mestra)\s+|m\.\s*)/i, "");
   }
-  return name.replace(/^(conselheiro|conselheira|c\.)\s*/i, "");
+  return name.replace(/^(?:(?:conselheiro|conselheira)\s+|c\.\s*)/i, "");
 }
 
 export function usesDegreePrefix(grau: string | null) {
@@ -38,10 +48,7 @@ export function getMemberDisplayName(member: MemberDisplayData) {
 }
 
 export function isMemberName(member: MemberDisplayData, name: string) {
-  const normalizedName = normalizeName(name);
-  return [member.name, getMemberDisplayName(member)].some(
-    (memberName) => normalizeName(memberName) === normalizedName,
-  );
+  return getMemberIdentityKey(getMemberDisplayName(member)) === getMemberIdentityKey(name);
 }
 
 export function getMemberDisplayNameForValue(

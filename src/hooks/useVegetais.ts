@@ -4,29 +4,64 @@ import { Vegetal } from "@/types/database";
 import { toast } from "sonner";
 import { getErrorMessage, logAndThrow } from "@/lib/errorLogging";
 
+type InventoryRpcError = { code?: string; message: string };
+type CreateVegetalRpc = (
+  functionName: "create_vegetal_with_movement",
+  args: { p_vegetal: Omit<Vegetal, "id" | "created_at" | "updated_at" | "is_archived"> },
+) => Promise<{ data: Vegetal | null; error: InventoryRpcError | null }>;
+type ChangeVegetalStockRpc = (
+  functionName: "change_vegetal_stock",
+  args: {
+    p_vegetal_id: string;
+    p_operation: "Saída" | "Ajuste";
+    p_quantity: number;
+    p_expected_quantity: number | null;
+    p_details: string | null;
+  },
+) => Promise<{ data: Vegetal | null; error: InventoryRpcError | null }>;
+
+const VEGETAIS_PAGE_SIZE = 1000;
+
 export function useVegetais(showArchived = false) {
   return useQuery({
     queryKey: ["vegetais", showArchived],
     queryFn: async () => {
-      let query = supabase
-        .from("vegetal")
-        .select("*")
-        .order("quantity", { ascending: false });
+      const vegetais: Vegetal[] = [];
+      for (let offset = 0; ;) {
+        let query = supabase
+          .from("vegetal")
+          .select("*", { count: "exact" })
+          .order("quantity", { ascending: false })
+          .order("id", { ascending: true })
+          .range(offset, offset + VEGETAIS_PAGE_SIZE - 1);
 
-      if (!showArchived) {
-        query = query.gt("quantity", 0);
-      }
+        if (!showArchived) {
+          query = query.gt("quantity", 0);
+        }
 
-      const { data, error } = await query;
-      if (error) {
-        return logAndThrow(error, {
-          location: "useVegetais.list",
-          operation: "read",
-          entity: "vegetal",
-          metadata: { show_archived: showArchived },
-        });
+        const { data, error, count } = await query;
+        if (error) {
+          return logAndThrow(error, {
+            location: "useVegetais.list",
+            operation: "read",
+            entity: "vegetal",
+            metadata: { show_archived: showArchived, offset },
+          });
+        }
+        const page = (data || []) as Vegetal[];
+        vegetais.push(...page);
+        if (count === null || (page.length === 0 && offset < count)) {
+          return logAndThrow(new Error("Não foi possível carregar todos os lotes de vegetal"), {
+            location: "useVegetais.list.pagination",
+            operation: "read",
+            entity: "vegetal",
+            metadata: { show_archived: showArchived, offset, count },
+          });
+        }
+        offset += page.length;
+        if (offset >= count) break;
       }
-      return data as Vegetal[];
+      return vegetais;
     },
   });
 }
@@ -60,14 +95,12 @@ export function useCreateVegetal() {
 
   return useMutation({
     mutationFn: async (vegetal: Omit<Vegetal, "id" | "created_at" | "updated_at" | "is_archived">) => {
-      const { data, error } = await supabase
-        .from("vegetal")
-        .insert({
-          ...vegetal,
-          is_archived: false,
-        })
-        .select()
-        .single();
+      // Added by the inventory migration; keep the cast local until Supabase
+      // types can be regenerated from the deployed schema.
+      const rpc = supabase.rpc.bind(supabase) as unknown as CreateVegetalRpc;
+      const { data, error } = await rpc("create_vegetal_with_movement", {
+        p_vegetal: vegetal,
+      });
 
       if (error) {
         return logAndThrow(error, {
@@ -75,29 +108,6 @@ export function useCreateVegetal() {
           operation: "create",
           entity: "vegetal",
           inputPayload: { vegetal },
-        });
-      }
-
-      // Create stock movement entry
-      const { error: movementError } = await supabase.from("stock_movement").insert({
-        type: "Entrada",
-        quantity: vegetal.initial_quantity,
-        vegetal_id: data.id,
-        details: `Novo lote cadastrado: ${vegetal.name}`,
-      });
-
-      if (movementError) {
-        return logAndThrow(movementError, {
-          location: "useVegetais.createStockMovement",
-          operation: "create",
-          entity: "stock_movement",
-          inputPayload: {
-            type: "Entrada",
-            quantity: vegetal.initial_quantity,
-            vegetal_id: data.id,
-            details: `Novo lote cadastrado: ${vegetal.name}`,
-          },
-          metadata: { vegetal_id: data.id },
         });
       }
 
@@ -120,90 +130,36 @@ export function useUpdateVegetal() {
   return useMutation({
     mutationFn: async ({
       id,
-      updates,
+      quantity,
       movementType,
       movementDetails,
+      expectedQuantity,
     }: {
       id: string;
-      updates: Partial<Vegetal>;
-      movementType?: "Saída" | "Ajuste";
+      quantity: number;
+      movementType: "Saída" | "Ajuste";
       movementDetails?: string;
+      expectedQuantity?: number;
     }) => {
-      const { data: currentVegetal, error: currentError } = await supabase
-        .from("vegetal")
-        .select("quantity")
-        .eq("id", id)
-        .single();
-
-      if (currentError) {
-        return logAndThrow(currentError, {
-          location: "useVegetais.loadBeforeUpdate",
-          operation: "read",
-          entity: "vegetal",
-          entityId: id,
-        });
-      }
-
-      // Trava otimista: quando a atualização mexe em quantity, só aplica se
-      // o valor lido acima ainda for o valor atual no banco. Sem isso, duas
-      // edições concorrentes (ex.: duas saídas registradas ao mesmo tempo)
-      // fariam a segunda sobrescrever a primeira sem avisar ninguém.
-      let query = supabase.from("vegetal").update(updates).eq("id", id);
-      if (updates.quantity !== undefined) {
-        query = query.eq("quantity", currentVegetal.quantity);
-      }
-      const { data, error } = await query.select().single();
+      const rpc = supabase.rpc.bind(supabase) as unknown as ChangeVegetalStockRpc;
+      const { data, error } = await rpc("change_vegetal_stock", {
+        p_vegetal_id: id,
+        p_operation: movementType,
+        // Saída recebe quantidade retirada; Ajuste recebe o novo saldo.
+        p_quantity: quantity,
+        p_expected_quantity: expectedQuantity ?? null,
+        p_details: movementDetails ?? null,
+      });
 
       if (error) {
-        if (error.code === "PGRST116" && updates.quantity !== undefined) {
-          const concurrencyError = new Error(
-            "A quantidade deste vegetal foi alterada por outra pessoa nesse meio tempo. Recarregue a página e tente novamente."
-          );
-          return logAndThrow(concurrencyError, {
-            location: "useVegetais.update.concurrentQuantityChange",
-            operation: "update",
-            entity: "vegetal",
-            entityId: id,
-            inputPayload: { id, updates },
-          });
-        }
         return logAndThrow(error, {
           location: "useVegetais.update",
           operation: "update",
           entity: "vegetal",
           entityId: id,
-          inputPayload: { id, updates },
+          inputPayload: { id, quantity, movementType, movementDetails, expectedQuantity },
         });
       }
-
-      // Create stock movement if quantity changed
-      if (movementType && updates.quantity !== undefined) {
-        const previousQuantity = Number(currentVegetal.quantity);
-        const quantityDiff = previousQuantity - Number(updates.quantity);
-        const { error: movementError } = await supabase.from("stock_movement").insert({
-          type: movementType,
-          // Saídas são positivas. No ajuste, um valor negativo representa acréscimo.
-          quantity: movementType === "Ajuste" ? quantityDiff : Math.abs(quantityDiff),
-          vegetal_id: id,
-          details: movementDetails || `${movementType} de estoque`,
-        });
-
-        if (movementError) {
-          return logAndThrow(movementError, {
-            location: "useVegetais.updateStockMovement",
-            operation: "create",
-            entity: "stock_movement",
-            inputPayload: {
-              type: movementType,
-              quantity: movementType === "Ajuste" ? quantityDiff : Math.abs(quantityDiff),
-              vegetal_id: id,
-              details: movementDetails || `${movementType} de estoque`,
-            },
-            metadata: { vegetal_id: id },
-          });
-        }
-      }
-
       return data;
     },
     onSuccess: () => {
@@ -213,6 +169,8 @@ export function useUpdateVegetal() {
       toast.success("Vegetal atualizado!");
     },
     onError: (error) => {
+      queryClient.invalidateQueries({ queryKey: ["vegetais"] });
+      queryClient.invalidateQueries({ queryKey: ["vegetal"] });
       toast.error("Erro ao atualizar: " + getErrorMessage(error));
     },
   });

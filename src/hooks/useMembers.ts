@@ -10,22 +10,39 @@ export interface Member {
   created_at: string;
 }
 
+const MEMBERS_PAGE_SIZE = 500;
+
 export function useMembers() {
   return useQuery({
     queryKey: ["members"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("members")
-        .select("*")
-        .order("name", { ascending: true });
-      if (error) {
-        return logAndThrow(error, {
-          location: "useMembers.list",
-          operation: "read",
-          entity: "members",
-        });
+      const members: Member[] = [];
+      let offset = 0;
+
+      while (true) {
+        const { data, error, count } = await supabase
+          .from("members")
+          .select("*", { count: "exact" })
+          .order("name", { ascending: true })
+          .order("id", { ascending: true })
+          .range(offset, offset + MEMBERS_PAGE_SIZE - 1);
+
+        if (error) {
+          return logAndThrow(error, {
+            location: "useMembers.list",
+            operation: "read",
+            entity: "members",
+            metadata: { offset },
+          });
+        }
+
+        if (!data?.length) break;
+        members.push(...data);
+        offset += data.length;
+        if (count !== null && offset >= count) break;
       }
-      return data as Member[];
+
+      return members;
     },
   });
 }

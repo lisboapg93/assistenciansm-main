@@ -72,6 +72,7 @@ import { useAuthContext } from "@/contexts/AuthContext";
 import { useMembers } from "@/hooks/useMembers";
 import { getMemberDisplayNameForValue } from "@/lib/memberDisplay";
 import { exportHistoryToXlsx } from "@/lib/exportHistory";
+import { getErrorMessage } from "@/lib/errorLogging";
 import { toast } from "sonner";
 
 const MONTHS = [
@@ -191,6 +192,10 @@ export default function Historico() {
 
   const handleImportSuccess = () => {
     queryClient.invalidateQueries({ queryKey: ["sessions"] });
+    queryClient.invalidateQueries({ queryKey: ["vegetais"] });
+    queryClient.invalidateQueries({ queryKey: ["stock_movements"] });
+    queryClient.invalidateQueries({ queryKey: ["stock_forecast"] });
+    queryClient.invalidateQueries({ queryKey: ["members"] });
   };
 
   const handleExport = async () => {

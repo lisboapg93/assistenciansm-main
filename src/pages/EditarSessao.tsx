@@ -37,6 +37,9 @@ import {
 import { cn } from "@/lib/utils";
 import { getErrorMessage } from "@/lib/errorLogging";
 
+const TRANSMISSION_TYPES = ["Primeira Escala", "Segunda Escala", "Extra"];
+const TRANSMISSION_PREFIX = /^\[Transmissão da Assistência - 2º Dirigente: ([^\]\r\n]+)\](?:\r?\n)?/;
+
 export default function EditarSessao() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
@@ -52,6 +55,8 @@ export default function EditarSessao() {
   const [basicData, setBasicData] = useState({
     date: "",
     type: "",
+    is_transmissao_assistencia: false,
+    segundo_dirigente: "",
     dirigente: "",
     explanador: "",
     leitor: "",
@@ -90,9 +95,16 @@ export default function EditarSessao() {
 
     if (isNewSession || membersJustArrived) {
       initializedRef.current = { sessionId: session.id, hasMembers: !!members };
+      const observation = session.observation || "";
+      const transmission = TRANSMISSION_PREFIX.exec(observation);
+      const allowsTransmission = TRANSMISSION_TYPES.includes(session.type);
       setBasicData({
         date: session.date.slice(0, 10),
         type: session.type,
+        is_transmissao_assistencia: Boolean(transmission && allowsTransmission),
+        segundo_dirigente: transmission && allowsTransmission
+          ? getMemberDisplayNameForValue(transmission[1].trim(), members)
+          : "",
         dirigente: getMemberDisplayNameForValue(session.dirigente, members),
         explanador: session.explanador ? getMemberDisplayNameForValue(session.explanador, members) : "",
         leitor: session.leitor ? getMemberDisplayNameForValue(session.leitor, members) : "",
@@ -103,27 +115,42 @@ export default function EditarSessao() {
       setContentData({
         has_photo: session.has_photo,
         has_audio: session.has_audio,
-        observation: session.observation || "",
+        observation: transmission ? observation.slice(transmission[0].length) : observation,
       });
       setParticipants(session.participants);
     }
   }, [session, members]);
 
   const showExplanadorLeitor = TYPES_WITH_EXPLANADOR_LEITOR.includes(basicData.type);
+  const showTransmissaoOption = TRANSMISSION_TYPES.includes(basicData.type);
   const totalParticipants = Object.values(participants).reduce((a, b) => a + b, 0);
+  const participantsValid = Object.values(participants).every(
+    (value) => Number.isInteger(value) && value >= 0,
+  ) && totalParticipants > 0;
   const memberNames = members?.map(getMemberDisplayName) || [];
-  const eligibleDirigentes = getEligibleDirigentes(basicData.type, members || []);
+  const eligibleDirigentes = getEligibleDirigentes(basicData.type, members || [], basicData.is_transmissao_assistencia);
   const eligibleExplanadores = members?.filter((member) => member.grau !== "Quadro de Sócios") || [];
   const mestresAssistentes = members?.filter((member) => member.grau === "Quadro de Mestre") || [];
-  const dirigenteInvalido = !isEligibleDirigente(basicData.type, basicData.dirigente, members || []);
+  const dirigenteInvalido = !isEligibleDirigente(basicData.type, basicData.dirigente, members || [], basicData.is_transmissao_assistencia);
+  const segundoDirigenteInvalido = !isEligibleDirigente(basicData.type, basicData.segundo_dirigente, members || [], basicData.is_transmissao_assistencia);
   const mestreAssistenteInvalido = !isEligibleMestreAssistente(basicData.mestre_assistente, members || []);
   const explanadorInvalido = !isEligibleExplanador(basicData.explanador, members || []);
 
   const handleSubmit = async () => {
     if (!id) return;
 
-    if (!basicData.type || !basicData.dirigente || !basicData.mestre_assistente) {
+    if (!basicData.date || !basicData.type || !basicData.dirigente || !basicData.mestre_assistente) {
       toast.error("Preencha os campos obrigatórios");
+      return;
+    }
+
+    if (basicData.is_transmissao_assistencia && (!showTransmissaoOption || !basicData.segundo_dirigente.trim())) {
+      toast.error("A transmissão exige um tipo permitido e o segundo dirigente.");
+      return;
+    }
+
+    if (!participantsValid) {
+      toast.error("Informe ao menos um participante e use quantidades inteiras não negativas.");
       return;
     }
 
@@ -135,9 +162,11 @@ export default function EditarSessao() {
     const roleValidationError = getSessionRoleValidationError({
       type: basicData.type,
       dirigente: basicData.dirigente,
+      segundoDirigente: basicData.is_transmissao_assistencia ? basicData.segundo_dirigente : undefined,
       explanador: showExplanadorLeitor ? basicData.explanador : undefined,
       leitor: showExplanadorLeitor ? basicData.leitor : undefined,
       mestreAssistente: basicData.mestre_assistente,
+      onlyQuadroDeMestre: basicData.is_transmissao_assistencia,
       members: members || [],
     });
     if (roleValidationError) {
@@ -148,9 +177,10 @@ export default function EditarSessao() {
     // Add members for autocomplete
     const namesToAdd = [
       basicData.dirigente,
+      basicData.is_transmissao_assistencia ? basicData.segundo_dirigente : "",
       basicData.mestre_assistente,
-      basicData.explanador,
-      basicData.leitor,
+      showExplanadorLeitor ? basicData.explanador : "",
+      showExplanadorLeitor ? basicData.leitor : "",
     ].filter(Boolean);
 
     try {
@@ -160,6 +190,10 @@ export default function EditarSessao() {
       return;
     }
 
+    const transmissionPrefix = basicData.is_transmissao_assistencia
+      ? `[Transmissão da Assistência - 2º Dirigente: ${basicData.segundo_dirigente}]`
+      : "";
+    const fullObservation = [transmissionPrefix, contentData.observation.trim()].filter(Boolean).join("\n");
     const updates = {
       date: basicData.date,
       type: basicData.type,
@@ -169,7 +203,7 @@ export default function EditarSessao() {
       mestre_assistente: basicData.mestre_assistente,
       has_photo: contentData.has_photo,
       has_audio: contentData.has_audio,
-      observation: contentData.observation || null,
+      observation: fullObservation || null,
       participants,
       total_participants: totalParticipants,
     };
@@ -250,9 +284,15 @@ export default function EditarSessao() {
                 </Label>
                 <Select
                   value={basicData.type}
-                  onValueChange={(value) =>
-                    setBasicData({ ...basicData, type: value })
-                  }
+                  onValueChange={(value) => {
+                    const allowsTransmission = TRANSMISSION_TYPES.includes(value);
+                    setBasicData({
+                      ...basicData,
+                      type: value,
+                      is_transmissao_assistencia: allowsTransmission && basicData.is_transmissao_assistencia,
+                      segundo_dirigente: allowsTransmission ? basicData.segundo_dirigente : "",
+                    });
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Selecione..." />
@@ -267,6 +307,23 @@ export default function EditarSessao() {
                 </Select>
               </div>
             </div>
+
+            {showTransmissaoOption && (
+              <div className="flex items-center space-x-3 p-3 rounded-lg bg-muted/50">
+                <Checkbox
+                  id="edit-is-transmissao"
+                  checked={basicData.is_transmissao_assistencia}
+                  onCheckedChange={(checked) => setBasicData({
+                    ...basicData,
+                    is_transmissao_assistencia: checked === true,
+                    segundo_dirigente: checked === true ? basicData.segundo_dirigente : "",
+                  })}
+                />
+                <Label htmlFor="edit-is-transmissao" className="cursor-pointer font-medium">
+                  Sessão da Transmissão da Assistência
+                </Label>
+              </div>
+            )}
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
@@ -283,8 +340,22 @@ export default function EditarSessao() {
                   aria-invalid={dirigenteInvalido}
                   className={cn(dirigenteInvalido && "border-destructive focus-visible:ring-destructive")}
                 />
-                <p className="text-xs text-muted-foreground">{getDirigenteRuleDescription(basicData.type)}</p>
+                <p className="text-xs text-muted-foreground">{getDirigenteRuleDescription(basicData.type, basicData.is_transmissao_assistencia)}</p>
               </div>
+              {basicData.is_transmissao_assistencia && (
+                <div className="space-y-2">
+                  <Label>Segundo Dirigente <span className="text-destructive">*</span></Label>
+                  <Input
+                    list="eligible-dirigentes-list"
+                    value={basicData.segundo_dirigente}
+                    onChange={(e) => setBasicData({ ...basicData, segundo_dirigente: e.target.value })}
+                    placeholder="Nome do segundo dirigente"
+                    aria-invalid={segundoDirigenteInvalido}
+                    className={cn(segundoDirigenteInvalido && "border-destructive focus-visible:ring-destructive")}
+                  />
+                  <p className="text-xs text-muted-foreground">Apenas membros do Quadro de Mestres.</p>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label>
                   Mestre Assistente <span className="text-destructive">*</span>

@@ -22,8 +22,9 @@ interface ErrorWithHttpStatus {
 
 function getLoginErrorFeedback(error: Error): LoginErrorFeedback {
   const message = error.message.toLowerCase();
-  const status = typeof (error as ErrorWithHttpStatus).status === "number"
-    ? (error as ErrorWithHttpStatus).status
+  const rawStatus = (error as ErrorWithHttpStatus).status;
+  const status = typeof rawStatus === "number"
+    ? rawStatus
     : undefined;
 
   // A API de autenticação deliberadamente não informa se o e-mail existe.

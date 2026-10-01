@@ -31,6 +31,7 @@ import { useAuthContext } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { useMemo } from "react";
 import { MemberDisplayData, getMemberDisplayNameForValue } from "@/lib/memberDisplay";
+import { parseDbDateToLocal } from "@/lib/date";
 
 interface VegetalDetailModalProps {
   vegetal: Vegetal | null;
@@ -54,7 +55,7 @@ export function VegetalDetailModal({
   const [ajusteRegistradoPor, setAjusteRegistradoPor] = useState("");
 
   const updateVegetal = useUpdateVegetal();
-  const { data: movements } = useStockMovements(vegetal?.id);
+  const { data: movements } = useStockMovements(vegetal?.id, Boolean(vegetal && open));
 
   const movementsWithBalance = useMemo(() => {
     if (!movements) return [];
@@ -98,7 +99,7 @@ export function VegetalDetailModal({
     updateVegetal.mutate(
       {
         id: vegetal.id,
-        updates: { quantity: vegetal.quantity - qtd },
+        quantity: qtd,
         movementType: "Saída",
         movementDetails: `${saidaMotivo || "Saída manual de estoque"}${registeredBy ? ` - Registrado por: ${registeredBy}` : ""}`,
       },
@@ -124,7 +125,8 @@ export function VegetalDetailModal({
     updateVegetal.mutate(
       {
         id: vegetal.id,
-        updates: { quantity: qtd },
+        quantity: qtd,
+        expectedQuantity: Number(vegetal.quantity),
         movementType: "Ajuste",
         movementDetails: `${ajusteMotivo || "Ajuste/correção de estoque"}${registeredBy ? ` - Registrado por: ${registeredBy}` : ""}`,
       },
@@ -177,7 +179,7 @@ export function VegetalDetailModal({
           <div>
             <p className="text-sm text-muted-foreground">Data Envase</p>
             <p className="font-medium">
-              {format(new Date(vegetal.envase_date), "dd/MM/yyyy", { locale: ptBR })}
+              {format(parseDbDateToLocal(vegetal.envase_date), "dd/MM/yyyy", { locale: ptBR })}
             </p>
           </div>
           <div>

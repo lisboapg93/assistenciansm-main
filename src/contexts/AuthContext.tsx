@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useState, useEffect, useRef, Re
 import { supabase } from "@/integrations/supabase/client";
 import { User, Session } from "@supabase/supabase-js";
 import { logApplicationError } from "@/lib/errorLogging";
+import { useQueryClient } from "@tanstack/react-query";
 
 type AppRole = "viewer" | "editor" | "assistant";
 
@@ -22,9 +23,11 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
 const LAST_ACTIVITY_STORAGE_KEY = "assistencia-nsm-last-activity";
+const AUTH_STORAGE_KEY = `sb-${new URL(import.meta.env.VITE_SUPABASE_URL).hostname.split(".")[0]}-auth-token`;
 const ACTIVITY_EVENTS = ["mousedown", "mousemove", "keydown", "scroll", "touchstart"];
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -33,6 +36,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // evento de auth (ex.: SIGNED_IN de outra conta logo após um SIGNED_OUT)
   // chega antes da primeira consulta terminar.
   const authEventIdRef = useRef(0);
+  const activeUserIdRef = useRef<string | null>(null);
 
   // Fetch user role from database. `eventId` identifica o evento de auth que
   // disparou esta busca; se um evento mais novo já assumiu o estado antes da
@@ -48,8 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { data, error } = await supabase
         .from("user_roles")
         .select("role")
-        .eq("user_id", userId)
-        .single();
+        .eq("user_id", userId);
 
       if (error) {
         await logApplicationError(error, {
@@ -63,7 +66,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      applyRole((data?.role as AppRole) || "viewer");
+      // Dados anteriores à restrição de um papel por conta podem conter mais
+      // de uma linha. A precedência coincide com as permissões do banco.
+      const roles = new Set(data?.map(({ role }) => role) ?? []);
+      applyRole(roles.has("editor") ? "editor" : roles.has("assistant") ? "assistant" : "viewer");
     } catch (err) {
       await logApplicationError(err, {
         location: "AuthContext.fetchUserRole",
@@ -81,6 +87,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // evita que a tela volte ao formulário enquanto ele ainda não foi emitido.
   const synchronizeAuthState = useCallback((nextSession: Session | null) => {
     const eventId = ++authEventIdRef.current;
+    const nextUserId = nextSession?.user.id ?? null;
+    if (activeUserIdRef.current !== nextUserId) {
+      queryClient.clear();
+      activeUserIdRef.current = nextUserId;
+    }
     setIsLoading(true);
     setSession(nextSession);
     setUser(nextSession?.user ?? null);
@@ -101,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setUserRole(null);
     setIsLoading(false);
-  }, [fetchUserRole]);
+  }, [fetchUserRole, queryClient]);
 
   useEffect(() => {
     // onAuthStateChange já emite o evento INITIAL_SESSION com a sessão atual
@@ -114,7 +125,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (_event, nextSession) => synchronizeAuthState(nextSession)
     );
 
-    return () => subscription.unsubscribe();
+    // No fallback offline, a remoção do token no localStorage também precisa
+    // encerrar a sessão exibida nas outras abas.
+    const handleAuthStorage = (event: StorageEvent) => {
+      if (event.key === AUTH_STORAGE_KEY && event.newValue === null) {
+        synchronizeAuthState(null);
+      }
+    };
+    window.addEventListener("storage", handleAuthStorage);
+
+    return () => {
+      subscription.unsubscribe();
+      window.removeEventListener("storage", handleAuthStorage);
+    };
   }, [synchronizeAuthState]);
 
   const signIn = async (email: string, password: string) => {
@@ -148,11 +171,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     localStorage.removeItem(LAST_ACTIVITY_STORAGE_KEY);
-    setUser(null);
-    setSession(null);
-    setUserRole(null);
-    await supabase.auth.signOut();
-  }, []);
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+    } catch (error) {
+      // O cliente Supabase mantém o token local quando a revogação remota
+      // falha. Removê-lo impede que a sessão reapareça após recarregar.
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+      localStorage.removeItem(`${AUTH_STORAGE_KEY}-code-verifier`);
+      void logApplicationError(error, {
+        location: "AuthContext.signOut",
+        operation: "auth",
+        entity: "session",
+      });
+    }
+    synchronizeAuthState(null);
+  }, [synchronizeAuthState]);
 
   useEffect(() => {
     if (!user) return;
