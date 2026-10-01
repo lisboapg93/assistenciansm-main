@@ -6,6 +6,7 @@ import {
   Search,
   ChevronLeft,
   ChevronRight,
+  ArrowRight,
   X,
   AlertCircle,
 } from "lucide-react";
@@ -50,6 +51,13 @@ const entityLabels: Record<AuditEntityType, string> = {
 type ActionFilter = AuditAction | "all";
 type EntityFilter = AuditEntityType | "all";
 type AuditData = Record<string, unknown>;
+type AuditChange = {
+  field: string;
+  oldValue: unknown;
+  newValue: unknown;
+};
+
+const auditTechnicalFields = new Set(["id", "created_at", "updated_at"]);
 
 const auditFieldLabels: Record<string, string> = {
   id: "Identificação",
@@ -135,6 +143,41 @@ function isAuditData(value: unknown): value is AuditData {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function areAuditValuesEqual(firstValue: unknown, secondValue: unknown): boolean {
+  if (Object.is(firstValue, secondValue)) return true;
+
+  if (Array.isArray(firstValue) && Array.isArray(secondValue)) {
+    return firstValue.length === secondValue.length
+      && firstValue.every((value, index) => areAuditValuesEqual(value, secondValue[index]));
+  }
+
+  if (isAuditData(firstValue) && isAuditData(secondValue)) {
+    const firstKeys = Object.keys(firstValue);
+    const secondKeys = Object.keys(secondValue);
+
+    return firstKeys.length === secondKeys.length
+      && firstKeys.every((key) => (
+        Object.prototype.hasOwnProperty.call(secondValue, key)
+        && areAuditValuesEqual(firstValue[key], secondValue[key])
+      ));
+  }
+
+  return false;
+}
+
+function getAuditChanges(oldData: AuditData, newData: AuditData): AuditChange[] {
+  const fields = new Set([...Object.keys(oldData), ...Object.keys(newData)]);
+
+  return [...fields]
+    .filter((field) => !auditTechnicalFields.has(field))
+    .filter((field) => !areAuditValuesEqual(oldData[field], newData[field]))
+    .map((field) => ({
+      field,
+      oldValue: oldData[field],
+      newValue: newData[field],
+    }));
+}
+
 function AuditValue({ field, value }: { field: string; value: unknown }) {
   if (value === null || value === undefined || value === "") {
     return <span className="text-muted-foreground">Não informado</span>;
@@ -173,6 +216,35 @@ function AuditDataDetails({ data }: { data: AuditData }) {
         <div key={field} className="grid gap-1 p-3 sm:grid-cols-[180px_1fr] sm:gap-3">
           <dt className="text-muted-foreground">{getAuditFieldLabel(field)}</dt>
           <dd className="break-words"><AuditValue field={field} value={value} /></dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function AuditChangesDetails({ oldData, newData }: { oldData: AuditData; newData: AuditData }) {
+  const changes = getAuditChanges(oldData, newData);
+
+  if (changes.length === 0) {
+    return <p className="rounded-lg border bg-muted/50 p-3 text-muted-foreground">Nenhuma alteração de dado identificada.</p>;
+  }
+
+  return (
+    <dl className="divide-y rounded-lg border bg-background">
+      {changes.map(({ field, oldValue, newValue }) => (
+        <div key={field} className="grid gap-2 p-3 sm:grid-cols-[180px_1fr] sm:gap-3">
+          <dt className="text-muted-foreground">{getAuditFieldLabel(field)}</dt>
+          <dd className="grid gap-2 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+            <div className="break-words">
+              <span className="text-xs text-muted-foreground">Antes</span>
+              <div><AuditValue field={field} value={oldValue} /></div>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground" aria-label="alterado para" />
+            <div className="break-words">
+              <span className="text-xs text-muted-foreground">Depois</span>
+              <div><AuditValue field={field} value={newValue} /></div>
+            </div>
+          </dd>
         </div>
       ))}
     </dl>
@@ -431,20 +503,17 @@ export default function Atividades() {
                   <p className="sm:col-span-2 break-all"><span className="text-muted-foreground">Identificação:</span><br />{selectedEntry.entityId}</p>
                 </div>
 
-                {selectedEntry.oldData && (
+                {selectedEntry.action === "update" && selectedEntry.oldData && selectedEntry.newData ? (
                   <div>
-                    <p className="mb-1 font-medium">Antes da alteração</p>
+                    <p className="mb-1 font-medium">Alterações realizadas</p>
+                    <AuditChangesDetails oldData={selectedEntry.oldData} newData={selectedEntry.newData} />
+                  </div>
+                ) : selectedEntry.action === "delete" && selectedEntry.oldData ? (
+                  <div>
+                    <p className="mb-1 font-medium">Dados excluídos</p>
                     <AuditDataDetails data={selectedEntry.oldData} />
                   </div>
-                )}
-                {selectedEntry.newData && (
-                  <div>
-                    <p className="mb-1 font-medium">
-                      {selectedEntry.action === "create" ? "Dados cadastrados" : "Após a alteração"}
-                    </p>
-                    <AuditDataDetails data={selectedEntry.newData} />
-                  </div>
-                )}
+                ) : null}
               </div>
             </>
           )}
