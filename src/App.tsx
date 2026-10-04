@@ -76,7 +76,7 @@ function AppRoutes() {
         <Route path="/estoque/novo" element={<ProtectedRoute requiresEditor><NovaEntrada /></ProtectedRoute>} />
         <Route path="/sessao/nova" element={<ProtectedRoute requiresEditor allowAssistant><NovaSessao /></ProtectedRoute>} />
         <Route path="/sessao/editar/:id" element={<ProtectedRoute requiresEditor><EditarSessao /></ProtectedRoute>} />
-        <Route path="/historico" element={<ProtectedRoute denyAssistant><Historico /></ProtectedRoute>} />
+        <Route path="/historico" element={<ProtectedRoute><Historico /></ProtectedRoute>} />
         <Route path="/relatorios" element={<ProtectedRoute denyAssistant><Relatorios /></ProtectedRoute>} />
         <Route path="/membros" element={<ProtectedRoute requiresEditor><Membros /></ProtectedRoute>} />
         <Route path="/atividades" element={<ProtectedRoute denyAssistant><Atividades /></ProtectedRoute>} />

@@ -28,7 +28,7 @@ const navItems = [
   { title: "Dashboard", path: "/dashboard", icon: LayoutDashboard, hideForAssistant: true },
   { title: "Sala do Vegetal", path: "/estoque", icon: Droplets },
   { title: "Nova Sessão", path: "/sessao/nova", icon: Calendar, requiresEditor: true, showForAssistant: true },
-  { title: "Histórico", path: "/historico", icon: History, hideForAssistant: true },
+  { title: "Histórico", path: "/historico", icon: History },
   { title: "Relatórios", path: "/relatorios", icon: BarChart3, hideForAssistant: true },
   { title: "Membros", path: "/membros", icon: Users, editorOnly: true },
   { title: "Atividades", path: "/atividades", icon: ClipboardList, hideForAssistant: true },

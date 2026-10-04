@@ -224,15 +224,17 @@ export default function Historico() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={handleExport}
-              variant="outline"
-              className="gap-2"
-              disabled={!sessions?.length || isExporting}
-            >
-              <Download className="h-4 w-4" />
-              {isExporting ? "Exportando..." : "Exportar página XLSX"}
-            </Button>
+            {isEditor && (
+              <Button
+                onClick={handleExport}
+                variant="outline"
+                className="gap-2"
+                disabled={!sessions?.length || isExporting}
+              >
+                <Download className="h-4 w-4" />
+                {isExporting ? "Exportando..." : "Exportar página XLSX"}
+              </Button>
+            )}
             {isEditor && (
               <Button onClick={() => setShowImportDialog(true)} variant="outline" className="gap-2">
                 <Upload className="h-4 w-4" />
