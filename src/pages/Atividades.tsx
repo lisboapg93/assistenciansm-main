@@ -361,12 +361,14 @@ export default function Atividades() {
               type="date"
               value={filters.occurredFrom}
               onChange={(event) => updateFilters({ occurredFrom: event.target.value })}
+              className="min-w-0 max-w-full"
               aria-label="Data inicial"
             />
             <Input
               type="date"
               value={filters.occurredTo}
               onChange={(event) => updateFilters({ occurredTo: event.target.value })}
+              className="min-w-0 max-w-full"
               aria-label="Data final"
             />
             {hasFilters && (
