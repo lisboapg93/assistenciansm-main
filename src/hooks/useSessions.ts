@@ -1,18 +1,22 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Session, Participants, Consumption } from "@/types/database";
+import { Session, Consumption } from "@/types/database";
 import type { Database } from "@/integrations/supabase/types";
 import { toast } from "sonner";
 import { getErrorMessage, logAndThrow } from "@/lib/errorLogging";
-import { toUtcDateBoundaryIso } from "@/lib/date";
+import { subtractMonthsFromIsoDate, todayBrazilianIsoDate, toUtcDateBoundaryIso } from "@/lib/date";
+import { normalizeParticipants } from "@/lib/sessionData";
 
-type SessionUpdate = Database["public"]["Tables"]["session"]["Update"];
 type SessionRow = Database["public"]["Tables"]["session"]["Row"];
 type EditableSessionFields = Partial<Pick<Session,
   "date" | "type" | "dirigente" | "explanador" | "leitor" |
   "mestre_assistente" | "observation" | "participants" |
   "total_participants" | "has_photo" | "has_audio"
 >>;
+type UpdateSessionRpc = (
+  functionName: "update_session_metadata",
+  args: { p_session_id: string; p_updates: EditableSessionFields },
+) => Promise<{ data: SessionRow | null; error: { code?: string; message: string } | null }>;
 const FETCH_PAGE_SIZE = 500;
 
 export interface SessionFilters {
@@ -36,7 +40,7 @@ const sanitizeSearch = (value: string) =>
 const mapSessions = (data: Array<{ participants: unknown; consumption: unknown }>) =>
   data.map((session) => ({
     ...session,
-    participants: session.participants as Participants,
+    participants: normalizeParticipants(session.participants),
     consumption: session.consumption as Consumption,
   })) as Session[];
 
@@ -49,8 +53,7 @@ function buildSessionsQuery(filters?: SessionFilters, withCount = false) {
 
   // Filter by last X months (takes priority over year/month)
   if (filters?.lastMonths) {
-    const now = new Date();
-    const startDate = toUtcDateBoundaryIso(now.getFullYear(), now.getMonth() - filters.lastMonths, now.getDate());
+    const startDate = `${subtractMonthsFromIsoDate(todayBrazilianIsoDate(), filters.lastMonths)}T00:00:00.000Z`;
     query = query.gte("date", startDate);
   } else {
     if (filters?.year) {
@@ -60,7 +63,7 @@ function buildSessionsQuery(filters?: SessionFilters, withCount = false) {
     }
 
     if (filters?.month !== undefined && filters.month >= 0) {
-      const year = filters.year || new Date().getFullYear();
+      const year = filters.year || Number(todayBrazilianIsoDate().slice(0, 4));
       const startDate = toUtcDateBoundaryIso(year, filters.month, 1);
       const endDate = toUtcDateBoundaryIso(year, filters.month + 1, 1);
       query = query.gte("date", startDate).lt("date", endDate);
@@ -154,7 +157,7 @@ export function useSession(id: string | undefined) {
       
       return {
         ...data,
-        participants: data.participants as unknown as Participants,
+        participants: normalizeParticipants(data.participants),
         consumption: data.consumption as unknown as Consumption,
       } as unknown as Session;
     },
@@ -180,12 +183,8 @@ export function useUpdateSession() {
       id: string;
       updates: EditableSessionFields;
     }) => {
-      const { data, error } = await supabase
-        .from("session")
-        .update(updates as unknown as SessionUpdate)
-        .eq("id", id)
-        .select()
-        .single();
+      const rpc = supabase.rpc.bind(supabase) as unknown as UpdateSessionRpc;
+      const { data, error } = await rpc("update_session_metadata", { p_session_id: id, p_updates: updates });
 
       if (error) {
         return logAndThrow(error, {
@@ -201,6 +200,8 @@ export function useUpdateSession() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
       queryClient.invalidateQueries({ queryKey: ["session"] });
+      queryClient.invalidateQueries({ queryKey: ["members"] });
+      queryClient.invalidateQueries({ queryKey: ["stock_forecast"] });
       toast.success("Sessão atualizada!");
     },
     onError: (error) => {
@@ -214,7 +215,7 @@ export function useDeleteSession() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("session").delete().eq("id", id);
+      const { data, error } = await supabase.from("session").delete().eq("id", id).select("id").maybeSingle();
       if (error) {
         return logAndThrow(error, {
           location: "useSessions.delete",
@@ -224,11 +225,17 @@ export function useDeleteSession() {
           inputPayload: { id },
         });
       }
+      if (!data) return logAndThrow(new Error("A sessão já foi excluída ou você não tem permissão para excluí-la."), {
+        location: "useSessions.delete", operation: "delete", entity: "session", entityId: id,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["sessions"] });
+      queryClient.invalidateQueries({ queryKey: ["session"] });
       queryClient.invalidateQueries({ queryKey: ["vegetais"] });
+      queryClient.invalidateQueries({ queryKey: ["vegetal"] });
       queryClient.invalidateQueries({ queryKey: ["stock_movements"] });
+      queryClient.invalidateQueries({ queryKey: ["stock_forecast"] });
       toast.success("Sessão excluída e consumo de estoque revertido!");
     },
     onError: (error) => {

@@ -15,7 +15,7 @@ type ChangeVegetalStockRpc = (
     p_vegetal_id: string;
     p_operation: "Saída" | "Ajuste";
     p_quantity: number;
-    p_expected_quantity: number | null;
+    p_expected_quantity: number;
     p_details: string | null;
   },
 ) => Promise<{ data: Vegetal | null; error: InventoryRpcError | null }>;
@@ -116,6 +116,8 @@ export function useCreateVegetal() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["vegetais"] });
       queryClient.invalidateQueries({ queryKey: ["stock_movements"] });
+      queryClient.invalidateQueries({ queryKey: ["stock_forecast"] });
+      queryClient.invalidateQueries({ queryKey: ["members"] });
       toast.success("Vegetal cadastrado com sucesso!");
     },
     onError: (error) => {
@@ -139,7 +141,7 @@ export function useUpdateVegetal() {
       quantity: number;
       movementType: "Saída" | "Ajuste";
       movementDetails?: string;
-      expectedQuantity?: number;
+      expectedQuantity: number;
     }) => {
       const rpc = supabase.rpc.bind(supabase) as unknown as ChangeVegetalStockRpc;
       const { data, error } = await rpc("change_vegetal_stock", {
@@ -147,7 +149,7 @@ export function useUpdateVegetal() {
         p_operation: movementType,
         // Saída recebe quantidade retirada; Ajuste recebe o novo saldo.
         p_quantity: quantity,
-        p_expected_quantity: expectedQuantity ?? null,
+        p_expected_quantity: expectedQuantity,
         p_details: movementDetails ?? null,
       });
 
@@ -166,6 +168,7 @@ export function useUpdateVegetal() {
       queryClient.invalidateQueries({ queryKey: ["vegetais"] });
       queryClient.invalidateQueries({ queryKey: ["vegetal"] });
       queryClient.invalidateQueries({ queryKey: ["stock_movements"] });
+      queryClient.invalidateQueries({ queryKey: ["stock_forecast"] });
       toast.success("Vegetal atualizado!");
     },
     onError: (error) => {

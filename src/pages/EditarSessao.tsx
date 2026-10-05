@@ -21,7 +21,7 @@ import {
   Save,
 } from "lucide-react";
 import { useSession, useUpdateSession } from "@/hooks/useSessions";
-import { useMembers, addMemberIfNotExists } from "@/hooks/useMembers";
+import { useMembers } from "@/hooks/useMembers";
 import { getMemberDisplayName, getMemberDisplayNameForValue } from "@/lib/memberDisplay";
 import { SESSION_TYPES, TYPES_WITH_EXPLANADOR_LEITOR, PARTICIPANT_LABELS, Participants } from "@/types/database";
 import { toast } from "sonner";
@@ -35,7 +35,8 @@ import {
   isEligibleMestreAssistente,
 } from "@/lib/sessionRoleEligibility";
 import { cn } from "@/lib/utils";
-import { getErrorMessage } from "@/lib/errorLogging";
+import { QueryError } from "@/components/QueryError";
+import { areParticipantsValid, MAX_PARTICIPANTS } from "@/lib/sessionData";
 
 const TRANSMISSION_TYPES = ["Primeira Escala", "Segunda Escala", "Extra"];
 const TRANSMISSION_PREFIX = /^\[Transmissão da Assistência - 2º Dirigente: ([^\]\r\n]+)\](?:\r?\n)?/;
@@ -43,9 +44,11 @@ const TRANSMISSION_PREFIX = /^\[Transmissão da Assistência - 2º Dirigente: ([
 export default function EditarSessao() {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { data: session, isLoading: isLoadingSession } = useSession(id);
+  const sessionQuery = useSession(id);
+  const { data: session, isLoading: isLoadingSession } = sessionQuery;
   const updateSession = useUpdateSession();
-  const { data: members, isLoading: isLoadingMembers } = useMembers();
+  const memberQuery = useMembers();
+  const { data: members, isLoading: isLoadingMembers } = memberQuery;
   // Só libera o formulário quando sessão E membros já chegaram — evita a
   // janela em que o usuário começa a editar antes dos membros carregarem e o
   // efeito de sincronização abaixo, ao vê-los chegar, reseta o formulário
@@ -124,9 +127,7 @@ export default function EditarSessao() {
   const showExplanadorLeitor = TYPES_WITH_EXPLANADOR_LEITOR.includes(basicData.type);
   const showTransmissaoOption = TRANSMISSION_TYPES.includes(basicData.type);
   const totalParticipants = Object.values(participants).reduce((a, b) => a + b, 0);
-  const participantsValid = Object.values(participants).every(
-    (value) => Number.isInteger(value) && value >= 0,
-  ) && totalParticipants > 0;
+  const participantsValid = areParticipantsValid(participants);
   const memberNames = members?.map(getMemberDisplayName) || [];
   const eligibleDirigentes = getEligibleDirigentes(basicData.type, members || [], basicData.is_transmissao_assistencia);
   const eligibleExplanadores = members?.filter((member) => member.grau !== "Quadro de Sócios") || [];
@@ -137,7 +138,7 @@ export default function EditarSessao() {
   const explanadorInvalido = !isEligibleExplanador(basicData.explanador, members || []);
 
   const handleSubmit = async () => {
-    if (!id) return;
+    if (!id || updateSession.isPending) return;
 
     if (!basicData.date || !basicData.type || !basicData.dirigente || !basicData.mestre_assistente) {
       toast.error("Preencha os campos obrigatórios");
@@ -174,22 +175,6 @@ export default function EditarSessao() {
       return;
     }
 
-    // Add members for autocomplete
-    const namesToAdd = [
-      basicData.dirigente,
-      basicData.is_transmissao_assistencia ? basicData.segundo_dirigente : "",
-      basicData.mestre_assistente,
-      showExplanadorLeitor ? basicData.explanador : "",
-      showExplanadorLeitor ? basicData.leitor : "",
-    ].filter(Boolean);
-
-    try {
-      await Promise.all(namesToAdd.map((name) => addMemberIfNotExists(name)));
-    } catch (error) {
-      toast.error("Erro ao atualizar membros da sessão: " + getErrorMessage(error));
-      return;
-    }
-
     const transmissionPrefix = basicData.is_transmissao_assistencia
       ? `[Transmissão da Assistência - 2º Dirigente: ${basicData.segundo_dirigente}]`
       : "";
@@ -218,6 +203,20 @@ export default function EditarSessao() {
     );
   };
 
+  const referenceDataError = sessionQuery.isError ? sessionQuery.error : memberQuery.isError ? memberQuery.error : null;
+  const retryReferenceData = () => {
+    void sessionQuery.refetch();
+    void memberQuery.refetch();
+  };
+
+  // Sem a sessão ou a lista de membros não é seguro abrir a edição. Quando
+  // ambas já existem em cache, uma falha de refetch não pode apagar rascunho.
+  if ((sessionQuery.isError && !session) || (memberQuery.isError && !members)) {
+    return <MainLayout><QueryError error={sessionQuery.error || memberQuery.error} onRetry={() => {
+      void sessionQuery.refetch(); void memberQuery.refetch();
+    }} /></MainLayout>;
+  }
+
   if (isLoading) {
     return (
       <MainLayout>
@@ -245,6 +244,7 @@ export default function EditarSessao() {
   return (
     <MainLayout>
       <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
+        {referenceDataError && <QueryError error={referenceDataError} onRetry={retryReferenceData} />}
         {/* Header */}
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
@@ -493,11 +493,12 @@ export default function EditarSessao() {
                     <Input
                       type="number"
                       min="0"
+                      max={MAX_PARTICIPANTS}
                       value={participants[key]}
                       onChange={(e) =>
                         setParticipants({
                           ...participants,
-                          [key]: parseInt(e.target.value) || 0,
+                          [key]: Number(e.target.value),
                         })
                       }
                     />

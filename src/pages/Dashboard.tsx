@@ -20,6 +20,8 @@ import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { parseDbDateToLocal } from "@/lib/date";
 import { getMemberDisplayName, isMemberName } from "@/lib/memberDisplay";
+import { useVegetais } from "@/hooks/useVegetais";
+import { QueryError } from "@/components/QueryError";
 
 type ModalType = "dirigentes" | "explanadores" | "leitores" | "mestresAssistentes" | "naoExplanaram" | "naoLeram" | null;
 
@@ -32,10 +34,13 @@ const GRAU_FILTERS = [
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { data: sessions, isLoading: isLoadingSessions } = useSessions();
-  const { data: members, isLoading: isLoadingMembers } = useMembers();
+  const sessionQuery = useSessions();
+  const memberQuery = useMembers();
+  const vegetalQuery = useVegetais();
+  const { data: sessions, isLoading: isLoadingSessions } = sessionQuery;
+  const { data: members, isLoading: isLoadingMembers } = memberQuery;
   const stats = useStatistics(sessions, undefined, members);
-  const isLoadingDashboard = isLoadingSessions || isLoadingMembers;
+  const isLoadingDashboard = isLoadingSessions || isLoadingMembers || vegetalQuery.isLoading;
   const [modalOpen, setModalOpen] = useState<ModalType>(null);
   const [grauFilters, setGrauFilters] = useState<string[]>([]);
 
@@ -62,6 +67,12 @@ export default function Dashboard() {
 
     return { naoExplanaram, naoLeram };
   }, [members, sessions]);
+
+  const queries = [sessionQuery, memberQuery, vegetalQuery];
+  const failedQuery = queries.find((query) => query.isError);
+  if (failedQuery) return <MainLayout><QueryError error={failedQuery.error} onRetry={() => {
+    queries.forEach((query) => { void query.refetch(); });
+  }} /></MainLayout>;
 
   if (isLoadingDashboard) {
     return (

@@ -33,7 +33,10 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { registerSessionWithConsumption } from "@/lib/sessionRegistration";
 import { getErrorMessage } from "@/lib/errorLogging";
-import { todayLocalIsoDate } from "@/lib/date";
+import { todayBrazilianIsoDate } from "@/lib/date";
+import { isStockQuantity, sumStockQuantities } from "@/lib/stockQuantity";
+import { QueryError } from "@/components/QueryError";
+import { areParticipantsValid, MAX_PARTICIPANTS } from "@/lib/sessionData";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   getDirigenteRuleDescription,
@@ -69,15 +72,17 @@ export default function NovaSessao() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submittingRef = useRef(false);
 
-  const { data: vegetais } = useVegetais();
-  const { data: members } = useMembers();
+  const vegetalQuery = useVegetais();
+  const memberQuery = useMembers();
+  const { data: vegetais } = vegetalQuery;
+  const { data: members } = memberQuery;
 
   // Use only members table for autocomplete
   const memberNames = members?.map(getMemberDisplayName) || [];
 
   // Form state
   const [basicData, setBasicData] = useState({
-    date: todayLocalIsoDate(),
+    date: todayBrazilianIsoDate(),
     type: "",
     is_transmissao_assistencia: false,
     segundo_dirigente: "",
@@ -131,13 +136,8 @@ export default function NovaSessao() {
   });
 
   const totalParticipants = Object.values(participants).reduce((a, b) => a + b, 0);
-  const participantsValid = Object.values(participants).every(
-    (value) => Number.isInteger(value) && value >= 0,
-  ) && totalParticipants > 0;
-  const totalAvailable = consumptionData.sources.reduce(
-    (sum, s) => sum + s.amount_available,
-    0
-  );
+  const participantsValid = areParticipantsValid(participants);
+  const totalAvailable = sumStockQuantities(consumptionData.sources.map((source) => source.amount_available));
 
   const showExplanadorLeitor = TYPES_WITH_EXPLANADOR_LEITOR.includes(basicData.type);
   const showTransmissaoOption = ['Primeira Escala', 'Segunda Escala', 'Extra'].includes(basicData.type);
@@ -225,13 +225,13 @@ export default function NovaSessao() {
       return;
     }
 
-    if (consumptionData.sources.some((source) => !Number.isFinite(source.amount_available) || source.amount_available <= 0)) {
-      toast.error("Informe uma quantidade positiva para cada vegetal selecionado.");
+    if (consumptionData.sources.some((source) => !isStockQuantity(source.amount_available))) {
+      toast.error("Informe quantidades positivas com no máximo 2 casas decimais para cada vegetal.");
       return;
     }
 
-    if (!Number.isFinite(totalConsumed) || totalConsumed <= 0) {
-      toast.error("Informe o total consumido");
+    if (!isStockQuantity(totalConsumed)) {
+      toast.error("Informe consumo positivo com no máximo 2 casas decimais.");
       return;
     }
 
@@ -329,8 +329,8 @@ export default function NovaSessao() {
         return (
           consumptionData.sources.length > 0 &&
           (consumptionData.is_united || consumptionData.sources.length === 1) &&
-          consumptionData.sources.every((source) => Number.isFinite(source.amount_available) && source.amount_available > 0) &&
-          Number(consumptionData.total_consumed) > 0 &&
+          consumptionData.sources.every((source) => isStockQuantity(source.amount_available)) &&
+          isStockQuantity(Number(consumptionData.total_consumed)) &&
           Number(consumptionData.total_consumed) <= totalAvailable
         );
       default:
@@ -338,9 +338,24 @@ export default function NovaSessao() {
     }
   };
 
+  const referenceDataError = memberQuery.isError ? memberQuery.error : vegetalQuery.isError ? vegetalQuery.error : null;
+  const retryReferenceData = () => {
+    void memberQuery.refetch();
+    void vegetalQuery.refetch();
+  };
+
+  // Sem dados iniciais não há como validar as funções da sessão. Após o
+  // formulário carregar, conserva o rascunho mesmo se um refetch falhar.
+  if ((memberQuery.isError && !members) || (vegetalQuery.isError && !vegetais)) {
+    return <MainLayout><QueryError error={referenceDataError} onRetry={retryReferenceData} /></MainLayout>;
+  }
+
+  const hasReferenceDataError = Boolean(referenceDataError);
+
   return (
     <MainLayout>
       <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
+        {hasReferenceDataError && <QueryError error={referenceDataError} onRetry={retryReferenceData} />}
         {/* Header */}
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
@@ -602,11 +617,12 @@ export default function NovaSessao() {
                       <Input
                         type="number"
                         min="0"
+                        max={MAX_PARTICIPANTS}
                         value={value || ""}
                         onChange={(e) =>
                           setParticipants({
                             ...participants,
-                            [key]: parseInt(e.target.value) || 0,
+                            [key]: Number(e.target.value),
                           })
                         }
                         placeholder="0"

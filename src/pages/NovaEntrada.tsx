@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { getErrorMessage } from "@/lib/errorLogging";
 import { useNavigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -8,15 +7,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ArrowLeft, Droplets, Save } from "lucide-react";
 import { useCreateVegetal } from "@/hooks/useVegetais";
-import { useMembers, addMemberIfNotExists } from "@/hooks/useMembers";
+import { useMembers } from "@/hooks/useMembers";
 import { getMemberDisplayName } from "@/lib/memberDisplay";
 import { toast } from "sonner";
+import { isStockQuantity } from "@/lib/stockQuantity";
+import { QueryError } from "@/components/QueryError";
 
 export default function NovaEntrada() {
   const navigate = useNavigate();
   const createVegetal = useCreateVegetal();
-  const { data: members } = useMembers();
-  const [isAddingMembers, setIsAddingMembers] = useState(false);
+  const memberQuery = useMembers();
+  const { data: members } = memberQuery;
 
   const [formData, setFormData] = useState({
     name: "",
@@ -34,41 +35,18 @@ export default function NovaEntrada() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (createVegetal.isPending) return;
 
-    if (!formData.name || !formData.quantity || !formData.envase_date || !formData.master) {
+    if (!formData.name.trim() || !formData.quantity || !formData.envase_date || !formData.master.trim()) {
       toast.error("Preencha todos os campos obrigatórios");
       return;
     }
 
     const quantity = parseFloat(formData.quantity);
-    if (isNaN(quantity) || quantity <= 0) {
-      toast.error("Quantidade inválida");
+    if (!isStockQuantity(quantity)) {
+      toast.error("Informe quantidade positiva com no máximo 2 casas decimais.");
       return;
     }
-
-    // Add members to the database for autocomplete
-    const namesToAdd = [
-      formData.master,
-      formData.auxiliary,
-      formData.registered_by_name,
-      formData.mensageiro,
-      formData.responsavel_chacrona,
-      formData.responsavel_baticao,
-    ].filter(Boolean);
-
-    setIsAddingMembers(true);
-    try {
-      for (const name of namesToAdd) {
-        // addMemberIfNotExists já registra o erro internamente (logAndThrow)
-        // antes de lançar; só tratamos aqui pra dar feedback ao usuário.
-        await addMemberIfNotExists(name);
-      }
-    } catch (error: unknown) {
-      toast.error(getErrorMessage(error) || "Erro ao registrar responsáveis do lote");
-      setIsAddingMembers(false);
-      return;
-    }
-    setIsAddingMembers(false);
 
     createVegetal.mutate(
       {
@@ -95,9 +73,14 @@ export default function NovaEntrada() {
 
   const memberNames = members?.map(getMemberDisplayName) || [];
 
+  if (memberQuery.isError && !members) {
+    return <MainLayout><QueryError error={memberQuery.error} onRetry={() => void memberQuery.refetch()} /></MainLayout>;
+  }
+
   return (
     <MainLayout>
       <div className="max-w-2xl mx-auto space-y-6 animate-fade-in">
+        {memberQuery.isError && <QueryError error={memberQuery.error} onRetry={() => void memberQuery.refetch()} />}
         {/* Header */}
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
@@ -296,10 +279,10 @@ export default function NovaEntrada() {
                 <Button
                   type="submit"
                   className="flex-1 gap-2"
-                  disabled={isAddingMembers || createVegetal.isPending}
+                  disabled={createVegetal.isPending}
                 >
                   <Save className="h-4 w-4" />
-                  {isAddingMembers || createVegetal.isPending ? "Salvando..." : "Salvar"}
+                  {createVegetal.isPending ? "Salvando..." : "Salvar"}
                 </Button>
               </div>
             </form>

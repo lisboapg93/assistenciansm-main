@@ -7,6 +7,7 @@ import { ThemeProvider } from "next-themes";
 import { lazy, Suspense } from "react";
 import { AuthProvider, useAuthContext } from "@/contexts/AuthContext";
 import Login from "./pages/Login";
+import { AccessError } from "@/components/AccessError";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Estoque = lazy(() => import("./pages/Estoque"));
@@ -33,7 +34,7 @@ function ProtectedRoute({
   allowAssistant?: boolean;
   denyAssistant?: boolean;
 }) {
-  const { isAuthenticated, isLoading, isEditor, isAssistant } = useAuthContext();
+  const { isAuthenticated, isLoading, isEditor, isAssistant, userRole } = useAuthContext();
   
   if (isLoading) {
     return (
@@ -47,6 +48,8 @@ function ProtectedRoute({
     return <Navigate to="/" replace />;
   }
 
+  if (!userRole) return <AccessError />;
+
   // If assistant tries to access denied routes, redirect to their home
   if (isAssistant && denyAssistant) {
     return <Navigate to="/sessao/nova" replace />;
@@ -54,7 +57,7 @@ function ProtectedRoute({
 
   // If route requires editor and user is not editor (but allow assistant for specific routes)
   if (requiresEditor && !isEditor && !(allowAssistant && isAssistant)) {
-    return <Navigate to="/dashboard" replace />;
+    return <Navigate to={isAssistant ? "/sessao/nova" : "/dashboard"} replace />;
   }
   
   return <>{children}</>;

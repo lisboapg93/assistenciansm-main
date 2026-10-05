@@ -66,7 +66,7 @@ import { Session, SESSION_TYPES } from "@/types/database";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
-import { formatBrazilianDateTime, parseDbDateToLocal } from "@/lib/date";
+import { formatBrazilianDateTime, parseDbDateToLocal, todayBrazilianIsoDate } from "@/lib/date";
 import { Badge } from "@/components/ui/badge";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useMembers } from "@/hooks/useMembers";
@@ -74,6 +74,7 @@ import { getMemberDisplayNameForValue } from "@/lib/memberDisplay";
 import { exportHistoryToXlsx } from "@/lib/exportHistory";
 import { getErrorMessage } from "@/lib/errorLogging";
 import { toast } from "sonner";
+import { QueryError } from "@/components/QueryError";
 
 const MONTHS = [
   { value: "0", label: "Janeiro" },
@@ -90,8 +91,8 @@ const MONTHS = [
   { value: "11", label: "Dezembro" },
 ];
 
-const currentYear = new Date().getFullYear();
-const YEARS = Array.from({ length: currentYear - 2024 }, (_, i) => currentYear - i);
+const currentYear = Number(todayBrazilianIsoDate().slice(0, 4));
+const YEARS = Array.from({ length: Math.max(1, currentYear - 2024 + 1) }, (_, i) => currentYear - i);
 
 const LAST_MONTHS_OPTIONS = [
   { value: "3", label: "Últimos 3 meses" },
@@ -115,7 +116,7 @@ export default function Historico() {
     year: undefined as number | undefined,
     month: undefined as number | undefined,
     types: [] as string[],
-    lastMonths: 3,
+    lastMonths: undefined as number | undefined,
   });
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [sessionToDelete, setSessionToDelete] = useState<Session | null>(null);
@@ -131,7 +132,7 @@ export default function Historico() {
     lastMonths: filters.lastMonths,
   }), [filters]);
 
-  const { data: sessionPage, isLoading } = usePaginatedSessions(
+  const { data: sessionPage, isLoading, error, isError, refetch } = usePaginatedSessions(
     sessionFilters,
     page,
     SESSIONS_PAGE_SIZE,
@@ -172,22 +173,26 @@ export default function Historico() {
   // undefined e totalPages cai para 1 momentaneamente, o que faria isso
   // "clampar" de volta pra página 0 a cada avanço de página normal.
   useEffect(() => {
-    if (!isLoading && page > totalPages - 1) {
+    if (!isLoading && !isError && page > totalPages - 1) {
       setPage(Math.max(0, totalPages - 1));
     }
-  }, [isLoading, page, totalPages]);
+  }, [isLoading, isError, page, totalPages]);
 
   const handleEdit = (sessionId: string) => {
-    // For now, just close the modal - edit functionality can be added later
+    if (!isEditor) return;
     setSelectedSession(null);
     navigate(`/sessao/editar/${sessionId}`);
   };
 
   const handleConfirmDelete = async () => {
-    if (!sessionToDelete) return;
-    await deleteSession.mutateAsync(sessionToDelete.id);
-    setSessionToDelete(null);
-    setSelectedSession(null);
+    if (!isEditor || !sessionToDelete) return;
+    try {
+      await deleteSession.mutateAsync(sessionToDelete.id);
+      setSessionToDelete(null);
+      setSelectedSession(null);
+    } catch {
+      // A mutação já registra o erro e exibe a mensagem ao usuário.
+    }
   };
 
   const handleImportSuccess = () => {
@@ -199,7 +204,7 @@ export default function Historico() {
   };
 
   const handleExport = async () => {
-    if (!sessions?.length) return;
+    if (!isEditor || !sessions?.length) return;
     setIsExporting(true);
     try {
       await exportHistoryToXlsx(sessions);
@@ -220,7 +225,7 @@ export default function Historico() {
           <div>
             <h1 className="text-2xl md:text-3xl font-bold">Histórico de Sessões</h1>
             <p className="text-muted-foreground mt-1">
-              {totalSessions} sessões encontradas
+              {isError ? "Consulta indisponível" : isLoading ? "Consultando sessões..." : `${totalSessions} sessões encontradas`}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -267,8 +272,8 @@ export default function Historico() {
                   setFilters({
                     ...filters,
                     lastMonths: value === "none" ? undefined : parseInt(value),
-                    year: value === "none" ? currentYear : undefined,
-                    month: value === "none" ? undefined : filters.month,
+                    year: undefined,
+                    month: undefined,
                   })
                 }
               >
@@ -390,7 +395,9 @@ export default function Historico() {
         {/* Table */}
         <Card>
           <CardContent className="p-0">
-            {isLoading ? (
+            {isError ? (
+              <QueryError error={error} onRetry={() => void refetch()} />
+            ) : isLoading ? (
               <div className="p-6 space-y-4">
                 {[...Array(5)].map((_, i) => (
                   <Skeleton key={i} className="h-16 w-full" />

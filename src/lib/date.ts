@@ -53,6 +53,7 @@ function getBrazilianDateParts(value: string | Date) {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
     hourCycle: "h23",
   }).formatToParts(new Date(value));
 }
@@ -61,17 +62,21 @@ function getBrazilianDateParts(value: string | Date) {
  * Exibe um instante no horário de Fortaleza (UTC-3), para que todos os
  * usuários vejam o mesmo horário independentemente do fuso do dispositivo.
  */
-export function formatBrazilianDateTime(value: string | Date): string {
+export function formatBrazilianDateTime(value: string | Date, includeSeconds = false): string {
   const parts = getBrazilianDateParts(value);
 
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((item) => item.type === type)?.value;
 
-  return `${part("day")}/${part("month")}/${part("year")} às ${part("hour")}:${part("minute")}`;
+  return `${part("day")}/${part("month")}/${part("year")} às ${part("hour")}:${part("minute")}${includeSeconds ? `:${part("second")}` : ""}`;
 }
 
 export function todayBrazilianIsoDate(): string {
-  const parts = getBrazilianDateParts(new Date());
+  return brazilianIsoDate(new Date());
+}
+
+export function brazilianIsoDate(value: string | Date): string {
+  const parts = getBrazilianDateParts(value);
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((item) => item.type === type)?.value;
 

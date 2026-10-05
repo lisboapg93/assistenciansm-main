@@ -31,7 +31,9 @@ import { useAuthContext } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { useMemo } from "react";
 import { MemberDisplayData, getMemberDisplayNameForValue } from "@/lib/memberDisplay";
-import { parseDbDateToLocal } from "@/lib/date";
+import { formatBrazilianDateTime, parseDbDateToLocal } from "@/lib/date";
+import { isStockQuantity } from "@/lib/stockQuantity";
+import { QueryError } from "@/components/QueryError";
 
 interface VegetalDetailModalProps {
   vegetal: Vegetal | null;
@@ -55,7 +57,7 @@ export function VegetalDetailModal({
   const [ajusteRegistradoPor, setAjusteRegistradoPor] = useState("");
 
   const updateVegetal = useUpdateVegetal();
-  const { data: movements } = useStockMovements(vegetal?.id, Boolean(vegetal && open));
+  const { data: movements, isLoading: isLoadingMovements, isError, error, refetch } = useStockMovements(vegetal?.id, Boolean(vegetal && open));
 
   const movementsWithBalance = useMemo(() => {
     if (!movements) return [];
@@ -91,8 +93,9 @@ export function VegetalDetailModal({
     saidaQtd !== "" && Number.isFinite(requestedQuantity) && requestedQuantity > availableQuantity;
 
   const handleSaida = () => {
+    if (!isEditor || updateVegetal.isPending) return;
     const qtd = parseFloat(saidaQtd);
-    if (isNaN(qtd) || qtd <= 0) return;
+    if (!isStockQuantity(qtd)) return;
     if (qtd > vegetal.quantity) return;
 
     const registeredBy = saidaRegistradoPor.trim();
@@ -100,6 +103,7 @@ export function VegetalDetailModal({
       {
         id: vegetal.id,
         quantity: qtd,
+        expectedQuantity: Number(vegetal.quantity),
         movementType: "Saída",
         movementDetails: `${saidaMotivo || "Saída manual de estoque"}${registeredBy ? ` - Registrado por: ${registeredBy}` : ""}`,
       },
@@ -115,8 +119,9 @@ export function VegetalDetailModal({
   };
 
   const handleAjuste = () => {
+    if (!isEditor || updateVegetal.isPending) return;
     const qtd = parseFloat(ajusteQtd);
-    if (isNaN(qtd) || qtd < 0) {
+    if (!isStockQuantity(qtd, true)) {
       toast.error("Quantidade inválida");
       return;
     }
@@ -230,7 +235,7 @@ export function VegetalDetailModal({
                   placeholder="Ex: 1.5"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Disponível: {availableQuantity.toFixed(2)} L
+                  Disponível: {availableQuantity.toFixed(2)} L. Use no máximo 2 casas decimais.
                 </p>
                 {exceedsAvailableQuantity && (
                   <p className="text-xs text-destructive" role="alert">
@@ -261,8 +266,8 @@ export function VegetalDetailModal({
                     className="w-full"
                     disabled={
                       !saidaQtd ||
-                      !Number.isFinite(requestedQuantity) ||
-                      requestedQuantity <= 0 ||
+                      updateVegetal.isPending ||
+                      !isStockQuantity(requestedQuantity) ||
                       exceedsAvailableQuantity
                     }
                   >
@@ -279,7 +284,7 @@ export function VegetalDetailModal({
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleSaida}>Confirmar</AlertDialogAction>
+                    <AlertDialogAction onClick={handleSaida} disabled={updateVegetal.isPending}>Confirmar</AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
@@ -320,7 +325,7 @@ export function VegetalDetailModal({
                   <Button
                     variant="outline"
                     className="w-full"
-                    disabled={!ajusteQtd || !Number.isFinite(parseFloat(ajusteQtd)) || parseFloat(ajusteQtd) < 0}
+                    disabled={updateVegetal.isPending || !ajusteQtd || !isStockQuantity(parseFloat(ajusteQtd), true) || parseFloat(ajusteQtd) === availableQuantity}
                   >
                     Aplicar Ajuste
                   </Button>
@@ -335,7 +340,7 @@ export function VegetalDetailModal({
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleAjuste}>Confirmar</AlertDialogAction>
+                    <AlertDialogAction onClick={handleAjuste} disabled={updateVegetal.isPending}>Confirmar</AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
@@ -344,7 +349,9 @@ export function VegetalDetailModal({
 
           <TabsContent value="historico" className="mt-4">
             <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
-              {movementsWithBalance.length === 0 ? (
+              {isError ? <QueryError error={error} onRetry={() => void refetch()} /> : isLoadingMovements ? (
+                <p className="py-4 text-center text-muted-foreground">Carregando movimentações...</p>
+              ) : movementsWithBalance.length === 0 ? (
                 <p className="text-center text-muted-foreground py-4">
                   Nenhuma movimentação registrada
                 </p>
@@ -359,7 +366,7 @@ export function VegetalDetailModal({
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-medium">{m.type}</p>
                         <p className="text-sm text-muted-foreground">
-                          {format(new Date(m.date), "dd/MM/yy HH:mm")}
+                          {formatBrazilianDateTime(m.date)}
                         </p>
                       </div>
                       <p className="text-xs text-muted-foreground break-words">

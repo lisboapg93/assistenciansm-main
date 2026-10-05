@@ -41,16 +41,18 @@ import {
 } from "lucide-react";
 import { useSessions } from "@/hooks/useSessions";
 import { useStatistics } from "@/hooks/useStatistics";
-import { useTotalStock } from "@/hooks/useVegetais";
+import { useVegetais } from "@/hooks/useVegetais";
 import { useStockMovements } from "@/hooks/useStockMovements";
 import { useMembers } from "@/hooks/useMembers";
 import { getMemberDisplayNameForValue } from "@/lib/memberDisplay";
 import { SESSION_TYPES, MovementType } from "@/types/database";
 import { Skeleton } from "@/components/ui/skeleton";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { brazilianDateBoundaryIso, brazilianIsoDate, parseDbDateToLocal } from "@/lib/date";
+import { QueryError } from "@/components/QueryError";
 
-const currentYear = new Date().getFullYear();
+const currentYear = Number(brazilianIsoDate(new Date()).slice(0, 4));
 const START_YEAR = 2025;
 const YEARS = Array.from({ length: currentYear - START_YEAR + 1 }, (_, i) => currentYear - i);
 
@@ -84,12 +86,16 @@ export default function Relatorios() {
   const [averageType, setAverageType] = useState("");
   const [assistantFilter, setAssistantFilter] = useState("");
 
-  const { data: sessions, isLoading } = useSessions({ year });
-  const { data: members } = useMembers();
+  const sessionQuery = useSessions({ year });
+  const memberQuery = useMembers();
+  const vegetalQuery = useVegetais();
+  const { data: sessions, isLoading } = sessionQuery;
+  const { data: members } = memberQuery;
   const stats = useStatistics(sessions, undefined, members);
   const statsFiltered = useStatistics(sessions, { type: averageType || undefined }, members);
-  const currentStock = useTotalStock();
-  const { data: movements, isLoading: isLoadingMovements } = useStockMovements();
+  const currentStock = vegetalQuery.data?.reduce((sum, lot) => sum + Number(lot.quantity), 0) || 0;
+  const movementQuery = useStockMovements();
+  const { data: movements, isLoading: isLoadingMovements } = movementQuery;
 
   // Prepare chart data
   const sessionsByTypeData = Object.entries(stats.sessionsByType).map(
@@ -101,7 +107,7 @@ export default function Relatorios() {
     if (!movements) return [];
     
     const yearMovements = movements.filter((m) => {
-      const moveYear = new Date(m.date).getFullYear();
+      const moveYear = Number(brazilianIsoDate(m.date).slice(0, 4));
       return moveYear === year;
     });
 
@@ -121,13 +127,13 @@ export default function Relatorios() {
   const stockEvolutionData = useMemo(() => {
     if (!movements) return [];
 
-    const yearStart = new Date(year, 0, 1).getTime();
+    const yearStart = new Date(brazilianDateBoundaryIso(`${year}-01-01`)!).getTime();
     let accumulatedBalance = movements
       .filter((m) => new Date(m.date).getTime() < yearStart)
       .reduce((sum, m) => sum + movementEffect(m.type, Number(m.quantity)), 0);
 
     const yearMovements = movements
-      .filter((m) => new Date(m.date).getFullYear() === year)
+      .filter((m) => Number(brazilianIsoDate(m.date).slice(0, 4)) === year)
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     if (yearMovements.length === 0) return [];
@@ -136,11 +142,12 @@ export default function Relatorios() {
     const monthlyData: Record<string, { month: string; entrada: number; saida: number; consumo: number }> = {};
 
     yearMovements.forEach((m) => {
-      const monthIndex = new Date(m.date).getMonth();
+      const calendarDate = brazilianIsoDate(m.date);
+      const monthIndex = Number(calendarDate.slice(5, 7)) - 1;
       const monthKey = String(monthIndex).padStart(2, "0");
       if (!monthlyData[monthKey]) {
         monthlyData[monthKey] = {
-          month: format(parseISO(m.date), "MMM", { locale: ptBR }),
+          month: format(parseDbDateToLocal(calendarDate), "MMM", { locale: ptBR }),
           entrada: 0,
           saida: 0,
           consumo: 0,
@@ -207,7 +214,13 @@ export default function Relatorios() {
     return Object.values(grouped).sort((a, b) => b.sessions - a.sessions);
   }, [sessions, assistantFilter, members]);
 
-  if (isLoading || isLoadingMovements) {
+  const queries = [sessionQuery, memberQuery, vegetalQuery, movementQuery];
+  const failedQuery = queries.find((query) => query.isError);
+  if (failedQuery) return <MainLayout><QueryError error={failedQuery.error} onRetry={() => {
+    queries.forEach((query) => { void query.refetch(); });
+  }} /></MainLayout>;
+
+  if (isLoading || isLoadingMovements || memberQuery.isLoading || vegetalQuery.isLoading) {
     return (
       <MainLayout>
         <div className="space-y-6">

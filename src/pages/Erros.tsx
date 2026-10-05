@@ -1,7 +1,5 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
-import { ptBR } from "date-fns/locale";
 import { AlertCircle, Bug, Eye, RefreshCw, Search, ShieldAlert } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -14,6 +12,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { getErrorMessage, logAndThrow } from "@/lib/errorLogging";
+import { QueryError } from "@/components/QueryError";
+import { formatBrazilianDateTime } from "@/lib/date";
 
 type JsonObject = Record<string, unknown>;
 
@@ -64,7 +64,7 @@ type OperationFailureLogsRpc = (
 ) => Promise<{ data: OperationFailureLog[] | null; error: { message: string } | null }>;
 
 function formatDateTime(value: string) {
-  return format(new Date(value), "dd/MM/yyyy HH:mm:ss", { locale: ptBR });
+  return formatBrazilianDateTime(value, true);
 }
 
 export default function Erros() {
@@ -73,7 +73,7 @@ export default function Erros() {
   const [sourceFilter, setSourceFilter] = useState<"all" | ErrorEntry["source"]>("all");
   const [selectedError, setSelectedError] = useState<ErrorEntry | null>(null);
 
-  const { data: errors = [], isLoading, isFetching } = useQuery({
+  const { data: errors = [], isLoading, isFetching, isError, error: queryError, refetch } = useQuery({
     queryKey: ["error-logs"],
     queryFn: async (): Promise<ErrorEntry[]> => {
       const operationFailureRpc = supabase.rpc.bind(supabase) as unknown as OperationFailureLogsRpc;
@@ -188,7 +188,7 @@ export default function Erros() {
 
         <Card>
           <CardContent className="p-0">
-            {isLoading ? (
+            {isError ? <QueryError error={queryError} onRetry={() => void refetch()} /> : isLoading ? (
               <div className="space-y-3 p-6">{[...Array(6)].map((_, index) => <Skeleton key={index} className="h-16 w-full" />)}</div>
             ) : filteredErrors.length === 0 ? (
               <div className="p-12 text-center">

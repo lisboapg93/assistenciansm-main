@@ -1,6 +1,7 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { ConsumptionSource, Participants } from "@/types/database";
 import { logAndThrow } from "@/lib/errorLogging";
+import { isStockQuantity, sumStockQuantities } from "@/lib/stockQuantity";
 
 export interface SessionRegistrationInput {
   date: string;
@@ -32,6 +33,13 @@ export async function registerSessionWithConsumption(
   sources: ConsumptionSource[],
   memberNames: string[],
 ) {
+  if (!isStockQuantity(session.total_consumed)
+    || sources.some((source) => !isStockQuantity(source.amount_available))
+    || session.total_consumed > sumStockQuantities(sources.map((source) => source.amount_available))) {
+    return logAndThrow(new Error("Informe quantidades positivas com no máximo 2 casas decimais e consumo dentro do saldo disponível."), {
+      location: "sessionRegistration.validateQuantities", operation: "create", entity: "session",
+    });
+  }
   // This function is added by the migration. Keep the cast local until the
   // generated Supabase types are refreshed from the deployed schema.
   const rpc = supabase.rpc.bind(supabase) as unknown as SessionRegistrationRpc;

@@ -37,6 +37,7 @@ import { useMembers } from "@/hooks/useMembers";
 import { getMemberDisplayNameForValue } from "@/lib/memberDisplay";
 import { supabase } from "@/integrations/supabase/client";
 import { logAndThrow } from "@/lib/errorLogging";
+import { QueryError } from "@/components/QueryError";
 
 interface StockForecast {
   sessions_remaining: number;
@@ -53,9 +54,13 @@ export default function Estoque() {
   const [search, setSearch] = useState("");
   const [selectedVegetal, setSelectedVegetal] = useState<Vegetal | null>(null);
 
-  const { data: vegetais, isLoading } = useVegetais(showArchived);
-  const { data: sessions } = useSessions(undefined, !isAssistant);
-  const { data: members } = useMembers();
+  const vegetalQuery = useVegetais(showArchived);
+  const stockQuery = useVegetais();
+  const sessionQuery = useSessions(undefined, !isAssistant);
+  const memberQuery = useMembers();
+  const { data: vegetais, isLoading } = vegetalQuery;
+  const { data: sessions } = sessionQuery;
+  const { data: members } = memberQuery;
   const totalStock = useTotalStock();
   const stats = useStatistics(isAssistant ? undefined : sessions, undefined, members);
   const { data: assistantForecast, isError: forecastError } = useQuery({
@@ -82,16 +87,22 @@ export default function Estoque() {
     : stats.monthsRemaining;
   const forecastLabel = isAssistant && !assistantForecast
     ? forecastError ? "Indisponível" : "Carregando..."
-    : `~${Math.floor(sessionsRemaining)} sessões`;
+    : !isAssistant && sessionQuery.isLoading ? "Carregando..." : `~${Math.floor(sessionsRemaining)} sessões`;
   const durationLabel = isAssistant && !assistantForecast
     ? forecastError ? "Indisponível" : "Carregando..."
-    : `~${monthsRemaining.toFixed(1)} meses`;
+    : !isAssistant && sessionQuery.isLoading ? "Carregando..." : `~${monthsRemaining.toFixed(1)} meses`;
 
   const filteredVegetais = vegetais?.filter(
     (v) =>
       v.name.toLowerCase().includes(search.toLowerCase()) ||
       getMemberDisplayNameForValue(v.master, members).toLowerCase().includes(search.toLowerCase())
   );
+
+  const queries = [vegetalQuery, stockQuery, memberQuery, ...(!isAssistant ? [sessionQuery] : [])];
+  const failedQuery = queries.find((query) => query.isError);
+  if (failedQuery) return <MainLayout><QueryError error={failedQuery.error} onRetry={() => {
+    queries.forEach((query) => { void query.refetch(); });
+  }} /></MainLayout>;
 
   return (
     <MainLayout>
@@ -125,7 +136,7 @@ export default function Estoque() {
                 <div>
                   <p className="text-sm text-muted-foreground">Estoque Total</p>
                   <p className="text-2xl font-bold text-primary">
-                    {totalStock.toFixed(2)} L
+                    {stockQuery.isLoading ? "Carregando..." : `${totalStock.toFixed(2)} L`}
                   </p>
                 </div>
               </div>
@@ -269,7 +280,7 @@ export default function Estoque() {
 
       {/* Detail Modal */}
       <VegetalDetailModal
-        vegetal={selectedVegetal}
+        vegetal={vegetais?.find((lot) => lot.id === selectedVegetal?.id) || selectedVegetal}
         members={members}
         open={!!selectedVegetal}
         onClose={() => setSelectedVegetal(null)}

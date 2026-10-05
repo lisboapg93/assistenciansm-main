@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import Papa from "papaparse";
 import {
   Dialog,
@@ -32,6 +32,9 @@ import { useMembers } from "@/hooks/useMembers";
 import { useVegetais } from "@/hooks/useVegetais";
 import { getSessionRoleValidationError } from "@/lib/sessionRoleEligibility";
 import { registerSessionWithConsumption } from "@/lib/sessionRegistration";
+import { isStockQuantity, sumStockQuantities } from "@/lib/stockQuantity";
+import { useAuthContext } from "@/contexts/AuthContext";
+import { areParticipantsValid } from "@/lib/sessionData";
 
 interface CsvImportDialogProps {
   open: boolean;
@@ -87,6 +90,10 @@ const CSV_TEMPLATE_HEADERS = [
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDialogProps) {
+  const { isEditor } = useAuthContext();
+  const importingRef = useRef(false);
+  const cancelledRef = useRef(false);
+  const importRunRef = useRef(0);
   const { data: members } = useMembers();
   const { data: vegetais } = useVegetais();
   const [file, setFile] = useState<File | null>(null);
@@ -107,6 +114,19 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       }
     | null
   >(null);
+
+  useEffect(() => {
+    if (!isEditor) {
+      cancelledRef.current = true;
+      importRunRef.current += 1;
+      importingRef.current = false;
+      setIsImporting(false);
+    }
+  }, [isEditor]);
+  useEffect(() => () => {
+    cancelledRef.current = true;
+    importRunRef.current += 1;
+  }, []);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -231,12 +251,12 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       }
       return [field, value];
     })) as Record<(typeof countFields)[number], number>;
-    if (Object.values(counts).reduce((sum, count) => sum + count, 0) <= 0) {
-      errors.push("Informe ao menos um participante");
+    if (!areParticipantsValid(counts as Participants)) {
+      errors.push("Informe de 1 a 2.147.483.647 participantes inteiros não negativos");
     }
 
     const totalConsumed = parseNumber(row.consumo_total);
-    if (totalConsumed === null || totalConsumed <= 0) errors.push("Consumo total deve ser positivo");
+    if (totalConsumed === null || !isStockQuantity(totalConsumed)) errors.push("Consumo deve ser positivo com no máximo 2 casas decimais");
 
     const isUnited = parseBoolean(row.vegetal_unido);
     const hasPhoto = parseBoolean(row.tem_foto);
@@ -271,13 +291,13 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
         const amount = rawAmount?.trim()
           ? parseNumber(rawAmount)
           : isUnited ? null : totalConsumed;
-        if (amount === null || amount === undefined || amount <= 0 || amount > vegetal.quantity) {
+        if (amount === null || amount === undefined || !isStockQuantity(amount) || amount > vegetal.quantity) {
           errors.push(`Quantidade inválida para o lote ${vegetal.name}`);
           continue;
         }
         sources.push({ vegetal_id: vegetal.id, vegetal_name: vegetal.name, amount_available: amount });
       }
-      if (totalConsumed !== null && sources.reduce((sum, source) => sum + source.amount_available, 0) < totalConsumed) {
+      if (totalConsumed !== null && sumStockQuantities(sources.map((source) => source.amount_available)) < totalConsumed) {
         errors.push("Consumo maior que o total disponibilizado pelos lotes");
       }
     }
@@ -524,17 +544,22 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
   };
 
   const handleImport = async () => {
+    if (!isEditor || importingRef.current) return;
     const validSessions = parsedData.filter((s) => s.isValid);
     if (validSessions.length === 0) {
       toast.error("Nenhuma sessão válida para importar");
       return;
     }
 
+    importingRef.current = true;
+    cancelledRef.current = false;
+    const importRun = ++importRunRef.current;
     setIsImporting(true);
     let successCount = 0;
     let failedCount = 0;
 
     for (const session of validSessions) {
+      if (cancelledRef.current || importRun !== importRunRef.current) break;
       try {
         const participants: Participants = {
           mestres: session.mestres,
@@ -574,9 +599,13 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       }
     }
 
-    setImportResult({ success: successCount, failed: failedCount });
-    setStep("result");
-    setIsImporting(false);
+    if (importRun !== importRunRef.current) return;
+    importingRef.current = false;
+    if (!cancelledRef.current) {
+      setImportResult({ success: successCount, failed: failedCount });
+      setStep("result");
+      setIsImporting(false);
+    }
 
     if (successCount > 0) {
       onSuccess?.();
@@ -597,6 +626,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
   };
 
   const handleClose = () => {
+    if (importingRef.current) return;
     resetDialog();
     onOpenChange(false);
   };

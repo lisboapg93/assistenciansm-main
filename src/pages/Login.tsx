@@ -8,6 +8,7 @@ import { Droplets, LoaderCircle, Lock, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { logApplicationError } from "@/lib/errorLogging";
+import { AccessError } from "@/components/AccessError";
 
 type LoginErrorCategory = "invalid_credentials" | "offline" | "supabase_connection" | "supabase_server" | "rate_limited" | "unknown";
 
@@ -74,24 +75,31 @@ function getLoginErrorFeedback(error: Error): LoginErrorFeedback {
 
 export default function Login() {
   const navigate = useNavigate();
-  const { signIn, isAuthenticated, isAssistant, userRole } = useAuthContext();
+  const { signIn, isAuthenticated, isAssistant, userRole, authError, isLoading: isAuthLoading } = useAuthContext();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   // Redirect if already authenticated
   useEffect(() => {
-    if (isAuthenticated && userRole) {
+    if (isAuthenticated && userRole && !isAuthLoading) {
       const redirectPath = isAssistant ? "/sessao/nova" : "/dashboard";
       navigate(redirectPath, { replace: true });
     }
-  }, [isAuthenticated, isAssistant, userRole, navigate]);
+  }, [isAuthenticated, isAssistant, userRole, isAuthLoading, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
 
-    const { error } = await signIn(email, password);
+    let error: Error | null;
+    try {
+      ({ error } = await signIn(email, password));
+    } catch (cause) {
+      error = cause instanceof Error ? cause : new Error(String(cause));
+    } finally {
+      setIsLoading(false);
+    }
 
     if (error) {
       const feedback = getLoginErrorFeedback(error);
@@ -111,16 +119,13 @@ export default function Login() {
           metadata: { category: feedback.category },
         });
       }
-      setIsLoading(false);
-    } else {
-      toast.success("Login realizado com sucesso!");
-      // A troca de página acontece após o AuthContext confirmar o papel do usuário.
-      // Assim, não exibimos uma tela sem as permissões já carregadas.
     }
   };
 
-  // Exibido somente após o envio do formulário de login.
-  if (isLoading) {
+  if (isAuthenticated && authError && !isAuthLoading) return <AccessError />;
+
+  // Aguarda a sessão e o perfil, inclusive ao restaurar uma sessão existente.
+  if (isLoading || isAuthLoading || isAuthenticated) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background text-center">
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/20">

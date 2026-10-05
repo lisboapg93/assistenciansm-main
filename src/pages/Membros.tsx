@@ -43,6 +43,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { QueryError } from "@/components/QueryError";
 
 const GRAU_OPTIONS = [
   "Quadro de Mestre",
@@ -60,7 +61,7 @@ interface MemberForm {
 }
 
 export default function Membros() {
-  const { data: members, isLoading } = useMembers();
+  const { data: members, isLoading, isError, error: queryError, refetch } = useMembers();
   const queryClient = useQueryClient();
   
   const [search, setSearch] = useState("");
@@ -100,6 +101,7 @@ export default function Membros() {
   };
 
   const handleSave = async () => {
+    if (isSaving) return;
     const trimmedName = form.name.trim();
     if (!trimmedName) {
       toast.error("Nome é obrigatório");
@@ -128,12 +130,15 @@ export default function Membros() {
     setIsSaving(true);
     try {
       if (editingMember) {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from("members")
           .update(memberData)
-          .eq("id", editingMember.id);
+          .eq("id", editingMember.id)
+          .select("id")
+          .maybeSingle();
 
         if (error) throw error;
+        if (!data) throw new Error("Membro não encontrado ou sem permissão para atualizar.");
         toast.success("Membro atualizado com sucesso");
       } else {
         const { error } = await supabase
@@ -166,12 +171,15 @@ export default function Membros() {
     if (!deletingMember) return;
 
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("members")
         .delete()
-        .eq("id", deletingMember.id);
+        .eq("id", deletingMember.id)
+        .select("id")
+        .maybeSingle();
 
       if (error) throw error;
+      if (!data) throw new Error("Membro já excluído ou sem permissão para excluir.");
       toast.success("Membro excluído com sucesso");
       queryClient.invalidateQueries({ queryKey: ["members"] });
     } catch (error: unknown) {
@@ -188,6 +196,8 @@ export default function Membros() {
       setDeletingMember(null);
     }
   };
+
+  if (isError) return <MainLayout><QueryError error={queryError} onRetry={() => void refetch()} /></MainLayout>;
 
   return (
     <MainLayout>
