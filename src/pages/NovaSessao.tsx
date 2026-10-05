@@ -90,6 +90,7 @@ export default function NovaSessao() {
     explanador: "",
     leitor: "",
     mestre_assistente: "",
+    registered_by_name: "",
   });
 
   const eligibleDirigentes = getEligibleDirigentes(
@@ -180,7 +181,7 @@ export default function NovaSessao() {
     if (submittingRef.current) return;
     const totalConsumed = Number(consumptionData.total_consumed);
     
-    if (!basicData.date || !basicData.type || !basicData.dirigente || !basicData.mestre_assistente) {
+    if (!basicData.date || !basicData.type || !basicData.dirigente || !basicData.mestre_assistente || !basicData.registered_by_name.trim()) {
       toast.error("Preencha os campos obrigatórios");
       return;
     }
@@ -249,6 +250,7 @@ export default function NovaSessao() {
         basicData.mestre_assistente,
         basicData.explanador,
         basicData.leitor,
+        basicData.registered_by_name,
       ].filter(Boolean);
 
       // Build observation with transmissão info
@@ -267,6 +269,7 @@ export default function NovaSessao() {
         explanador: showExplanadorLeitor ? basicData.explanador : null,
         leitor: showExplanadorLeitor ? basicData.leitor : null,
         mestre_assistente: basicData.mestre_assistente || null,
+        registered_by_name: basicData.registered_by_name.trim(),
         has_photo: contentData.has_photo,
         has_audio: contentData.has_audio,
         observation: fullObservation || null,
@@ -308,7 +311,7 @@ export default function NovaSessao() {
   const canProceed = () => {
     switch (currentStep) {
       case 1:
-        if (!basicData.type || !basicData.dirigente || !basicData.date || !basicData.mestre_assistente) return false;
+        if (!basicData.type || !basicData.dirigente || !basicData.date || !basicData.mestre_assistente || !basicData.registered_by_name.trim()) return false;
         if (showExplanadorLeitor && (!basicData.explanador || !basicData.leitor)) return false;
         if (basicData.is_transmissao_assistencia && !basicData.segundo_dirigente) return false;
         return !getSessionRoleValidationError({
@@ -524,6 +527,18 @@ export default function NovaSessao() {
                     />
                     <p className="text-xs text-muted-foreground">Apenas membros do Quadro de Mestres.</p>
                   </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>
+                    Registrado por <span className="text-destructive">*</span>
+                  </Label>
+                  <MemberAutocompleteInput
+                    options={memberNames}
+                    value={basicData.registered_by_name}
+                    onValueChange={(registered_by_name) => setBasicData({ ...basicData, registered_by_name })}
+                    placeholder="Nome de quem registrou"
+                  />
                 </div>
 
                 {showExplanadorLeitor && (

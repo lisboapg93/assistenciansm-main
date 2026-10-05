@@ -10,6 +10,7 @@ export interface SessionRegistrationInput {
   explanador: string | null;
   leitor: string | null;
   mestre_assistente: string | null;
+  registered_by_name: string;
   observation: string | null;
   participants: Participants;
   total_participants: number;
@@ -33,10 +34,11 @@ export async function registerSessionWithConsumption(
   sources: ConsumptionSource[],
   memberNames: string[],
 ) {
-  if (!isStockQuantity(session.total_consumed)
+  if (!session.registered_by_name.trim()
+    || !isStockQuantity(session.total_consumed)
     || sources.some((source) => !isStockQuantity(source.amount_available))
     || session.total_consumed > sumStockQuantities(sources.map((source) => source.amount_available))) {
-    return logAndThrow(new Error("Informe quantidades positivas com no máximo 2 casas decimais e consumo dentro do saldo disponível."), {
+    return logAndThrow(new Error("Informe quem registrou a sessão e quantidades válidas de consumo."), {
       location: "sessionRegistration.validateQuantities", operation: "create", entity: "session",
     });
   }

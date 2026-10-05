@@ -46,6 +46,7 @@ export interface Session {
   explanador: string | null;
   leitor: string | null;
   mestre_assistente: string | null;
+  registered_by_name: string | null;
   observation: string | null;
   participants: Participants;
   total_participants: number;

@@ -48,6 +48,7 @@ interface ParsedSession {
   type: string;
   dirigente: string;
   mestre_assistente: string;
+  registered_by_name: string;
   explanador?: string;
   leitor?: string;
   mestres: number;
@@ -71,6 +72,7 @@ const CSV_TEMPLATE_HEADERS = [
   "tipo",
   "dirigente",
   "mestre_assistente",
+  "registrado_por",
   "explanador",
   "leitor",
   "mestres",
@@ -138,6 +140,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       "Primeira Escala",
       "João Silva",
       "Maria Santos",
+      "Carlos Souza",
       "Pedro Costa",
       "Ana Lima",
       "5",
@@ -224,6 +227,11 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       errors.push("Mestre Assistente é obrigatório");
     }
 
+    const registeredByName = row.registrado_por?.trim() || "";
+    if (!registeredByName) {
+      errors.push("Registrado por é obrigatório");
+    }
+
     const explanador = row.explanador?.trim() || "";
     const leitor = row.leitor?.trim() || "";
     if (TYPES_WITH_EXPLANADOR_LEITOR.includes(type) && (!explanador || !leitor)) {
@@ -308,6 +316,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       type,
       dirigente,
       mestre_assistente: mestreAssistente,
+      registered_by_name: registeredByName,
       explanador: explanador || undefined,
       leitor: leitor || undefined,
       ...counts,
@@ -396,6 +405,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       "tipo",
       "dirigente",
       "mestre_assistente",
+      "registrado_por",
       "explanador",
       "leitor",
       "mestres",
@@ -417,6 +427,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       tipo: ["tipo", "type", "tipo_de_sessao", "tipo_sessao", "sessao"],
       dirigente: ["dirigente", "dirigente_nome"],
       mestre_assistente: ["mestre_assistente", "mestre_assistente_nome", "assistente", "m_assistente"],
+      registrado_por: ["registrado_por", "registered_by_name", "cadastrado_por", "responsavel_registro"],
       explanador: ["explanador", "explanador_nome"],
       leitor: ["leitor", "leitor_nome"],
       mestres: ["mestres", "mestre", "qtd_mestres"],
@@ -577,6 +588,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
           type: session.type,
           dirigente: session.dirigente,
           mestre_assistente: session.mestre_assistente,
+          registered_by_name: session.registered_by_name,
           explanador: session.explanador || null,
           leitor: session.leitor || null,
           participants,
@@ -589,6 +601,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
         }, session.sources, [
           session.dirigente,
           session.mestre_assistente,
+          session.registered_by_name,
           session.explanador,
           session.leitor,
         ].filter((name): name is string => Boolean(name)));

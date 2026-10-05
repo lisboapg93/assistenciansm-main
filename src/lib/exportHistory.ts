@@ -8,7 +8,7 @@ export async function exportHistoryToXlsx(sessions: Session[]) {
   const { default: writeXlsxFile } = await import("write-excel-file");
 
   const historyHeaders = [
-    "Data", "Tipo", "Dirigente", "Mestre assistente", "Explanador", "Leitor",
+    "Data", "Tipo", "Dirigente", "Mestre assistente", "Registrado por", "Explanador", "Leitor",
     "Mestres", "Conselheiros", "Instrutivo", "Sócios", "Visitantes", "Jovens",
     "Total de participantes", "Consumo total (L)", "Vegetal unido", "Tem foto",
     "Tem áudio", "Observação",
@@ -21,6 +21,7 @@ export async function exportHistoryToXlsx(sessions: Session[]) {
     session.type,
     session.dirigente,
     session.mestre_assistente || "",
+    session.registered_by_name || "",
     session.explanador || "",
     session.leitor || "",
     session.participants.mestres,

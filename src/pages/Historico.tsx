@@ -580,6 +580,14 @@ export default function Historico() {
                       </p>
                     </div>
                   )}
+                  {selectedSession.registered_by_name && (
+                    <div>
+                      <p className="text-sm text-muted-foreground">Registrado por</p>
+                      <p className="font-medium">
+                        {getMemberDisplayNameForValue(selectedSession.registered_by_name, members)}
+                      </p>
+                    </div>
+                  )}
                   {selectedSession.explanador && (
                     <div>
                       <p className="text-sm text-muted-foreground">Explanador</p>
