@@ -196,6 +196,7 @@ export type Database = {
           mestre_assistente: string | null
           observation: string | null
           participants: Json
+          registered_by_name: string | null
           total_participants: number
           type: string
           updated_at: string
@@ -213,6 +214,7 @@ export type Database = {
           mestre_assistente?: string | null
           observation?: string | null
           participants?: Json
+          registered_by_name?: string | null
           total_participants?: number
           type: string
           updated_at?: string
@@ -230,6 +232,7 @@ export type Database = {
           mestre_assistente?: string | null
           observation?: string | null
           participants?: Json
+          registered_by_name?: string | null
           total_participants?: number
           type?: string
           updated_at?: string
@@ -367,6 +370,68 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      change_vegetal_stock: {
+        Args: {
+          p_details: string
+          p_expected_quantity: number
+          p_operation: string
+          p_quantity: number
+          p_vegetal_id: string
+        }
+        Returns: {
+          auxiliary: string | null
+          chacrona_species: string | null
+          created_at: string
+          envase_date: string
+          id: string
+          initial_quantity: number
+          is_archived: boolean
+          mariri_species: string | null
+          master: string
+          mensageiro: string | null
+          name: string
+          quantity: number
+          registered_by_name: string | null
+          responsavel_baticao: string | null
+          responsavel_chacrona: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "vegetal"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      create_vegetal_with_movement: {
+        Args: { p_vegetal: Json }
+        Returns: {
+          auxiliary: string | null
+          chacrona_species: string | null
+          created_at: string
+          envase_date: string
+          id: string
+          initial_quantity: number
+          is_archived: boolean
+          mariri_species: string | null
+          master: string
+          mensageiro: string | null
+          name: string
+          quantity: number
+          registered_by_name: string | null
+          responsavel_baticao: string | null
+          responsavel_chacrona: string | null
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "vegetal"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      ensure_person_members: { Args: { p_names: string[] }; Returns: undefined }
+      get_stock_forecast: { Args: never; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -446,11 +511,46 @@ export type Database = {
         }
         Returns: string
       }
+      member_display_name: {
+        Args: { p_grau: string; p_name: string }
+        Returns: string
+      }
+      member_identity_key: {
+        Args: { p_grau: string; p_name: string }
+        Returns: string
+      }
       normalize_person_name: { Args: { p_name: string }; Returns: string }
       person_name_key: { Args: { p_name: string }; Returns: string }
       register_session_with_consumption: {
         Args: { p_member_names?: Json; p_session: Json; p_sources: Json }
         Returns: string
+      }
+      update_session_metadata: {
+        Args: { p_session_id: string; p_updates: Json }
+        Returns: {
+          consumption: Json
+          created_at: string
+          date: string
+          dirigente: string
+          explanador: string | null
+          has_audio: boolean
+          has_photo: boolean
+          id: string
+          leitor: string | null
+          mestre_assistente: string | null
+          observation: string | null
+          participants: Json
+          registered_by_name: string | null
+          total_participants: number
+          type: string
+          updated_at: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "session"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
     }
     Enums: {
