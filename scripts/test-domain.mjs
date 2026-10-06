@@ -54,4 +54,16 @@ assert.match(getSessionRoleValidationError({
 assert.match(getSessionRoleValidationError({
   type: "Primeira Escala", dirigente: "Pedro", members,
 }), /elegível/);
+assert.equal(getSessionRoleValidationError({
+  type: "Primeira Escala", dirigente: "M. João", mestreAssistente: "M. João",
+  members: [], validateEligibility: { dirigente: false, mestreAssistente: false },
+}), null);
+assert.match(getSessionRoleValidationError({
+  type: "Primeira Escala", dirigente: "M. João", leitor: "Mestre Joao", members: [],
+  validateEligibility: { dirigente: false },
+}), /mesma pessoa/);
+assert.match(getSessionRoleValidationError({
+  type: "Primeira Escala", dirigente: "M. João", members: [],
+  validateEligibility: { dirigente: true },
+}), /elegível/);
 console.log("Regressões de quantidades, participantes, funções e fusos: OK");

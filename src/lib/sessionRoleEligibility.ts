@@ -94,6 +94,7 @@ export function getSessionRoleValidationError({
   leitor,
   mestreAssistente,
   onlyQuadroDeMestre,
+  validateEligibility,
   members,
 }: {
   type: string;
@@ -103,6 +104,12 @@ export function getSessionRoleValidationError({
   leitor?: string;
   mestreAssistente?: string;
   onlyQuadroDeMestre?: boolean;
+  validateEligibility?: {
+    dirigente?: boolean;
+    segundoDirigente?: boolean;
+    explanador?: boolean;
+    mestreAssistente?: boolean;
+  };
   members: MemberRoleData[];
 }) {
   const sessionRoles = [
@@ -126,22 +133,24 @@ export function getSessionRoleValidationError({
     }
   }
 
-  for (const [role, name] of [
-    ["dirigente", dirigente],
-    ["segundo dirigente", segundoDirigente],
+  for (const [role, name, shouldValidate] of [
+    ["dirigente", dirigente, validateEligibility?.dirigente ?? true],
+    ["segundo dirigente", segundoDirigente, validateEligibility?.segundoDirigente ?? true],
   ] as const) {
     if (!name?.trim()) continue;
 
-    if (!isEligibleDirigente(type, name, members, onlyQuadroDeMestre)) {
+    if (shouldValidate && !isEligibleDirigente(type, name, members, onlyQuadroDeMestre)) {
       return `O ${role} deve ser um membro elegível para este tipo de sessão.`;
     }
   }
 
-  if (explanador?.trim() && !isEligibleExplanador(explanador, members)) {
+  if ((validateEligibility?.explanador ?? true)
+    && explanador?.trim() && !isEligibleExplanador(explanador, members)) {
     return "O explanador deve ser um membro cadastrado e não pode ser do Quadro de Sócios.";
   }
 
-  if (mestreAssistente?.trim() && !isEligibleMestreAssistente(mestreAssistente, members)) {
+  if ((validateEligibility?.mestreAssistente ?? true)
+    && mestreAssistente?.trim() && !isEligibleMestreAssistente(mestreAssistente, members)) {
     return "O mestre assistente deve ser um membro do Quadro de Mestre.";
   }
 

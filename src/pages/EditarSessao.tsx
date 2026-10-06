@@ -22,7 +22,10 @@ import {
 } from "lucide-react";
 import { useSession, useUpdateSession } from "@/hooks/useSessions";
 import { useMembers } from "@/hooks/useMembers";
-import { getMemberDisplayName, getMemberDisplayNameForValue } from "@/lib/memberDisplay";
+import {
+  getMemberDisplayName,
+  getMemberIdentityKey,
+} from "@/lib/memberDisplay";
 import { SESSION_TYPES, TYPES_WITH_EXPLANADOR_LEITOR, PARTICIPANT_LABELS, Participants } from "@/types/database";
 import { toast } from "sonner";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -40,6 +43,9 @@ import { areParticipantsValid, MAX_PARTICIPANTS } from "@/lib/sessionData";
 
 const TRANSMISSION_TYPES = ["Primeira Escala", "Segunda Escala", "Extra"];
 const TRANSMISSION_PREFIX = /^\[Transmissão da Assistência - 2º Dirigente: ([^\]\r\n]+)\](?:\r?\n)?/;
+
+const hasSameRoleValue = (current: string | null | undefined, original: string | null | undefined) =>
+  getMemberIdentityKey(current || "") === getMemberIdentityKey(original || "");
 
 export default function EditarSessao() {
   const navigate = useNavigate();
@@ -106,14 +112,12 @@ export default function EditarSessao() {
         type: session.type,
         is_transmissao_assistencia: Boolean(transmission && allowsTransmission),
         segundo_dirigente: transmission && allowsTransmission
-          ? getMemberDisplayNameForValue(transmission[1].trim(), members)
+          ? transmission[1].trim()
           : "",
-        dirigente: getMemberDisplayNameForValue(session.dirigente, members),
-        explanador: session.explanador ? getMemberDisplayNameForValue(session.explanador, members) : "",
-        leitor: session.leitor ? getMemberDisplayNameForValue(session.leitor, members) : "",
-        mestre_assistente: session.mestre_assistente
-          ? getMemberDisplayNameForValue(session.mestre_assistente, members)
-          : "",
+        dirigente: session.dirigente,
+        explanador: session.explanador || "",
+        leitor: session.leitor || "",
+        mestre_assistente: session.mestre_assistente || "",
       });
       setContentData({
         has_photo: session.has_photo,
@@ -128,14 +132,28 @@ export default function EditarSessao() {
   const showTransmissaoOption = TRANSMISSION_TYPES.includes(basicData.type);
   const totalParticipants = Object.values(participants).reduce((a, b) => a + b, 0);
   const participantsValid = areParticipantsValid(participants);
+  const originalObservation = session?.observation || "";
+  const originalTransmission = TRANSMISSION_PREFIX.exec(originalObservation);
+  const originalSegundoDirigente = originalTransmission?.[1]?.trim() || "";
+  const nextExplanador = showExplanadorLeitor ? basicData.explanador : null;
+  const nextLeitor = showExplanadorLeitor ? basicData.leitor : null;
+  const dirigenteChanged = !hasSameRoleValue(basicData.dirigente, session?.dirigente);
+  const segundoDirigenteChanged = !hasSameRoleValue(basicData.segundo_dirigente, originalSegundoDirigente);
+  const explanadorChanged = !hasSameRoleValue(nextExplanador, session?.explanador);
+  const leitorChanged = !hasSameRoleValue(nextLeitor, session?.leitor);
+  const mestreAssistenteChanged = !hasSameRoleValue(basicData.mestre_assistente, session?.mestre_assistente);
   const memberNames = members?.map(getMemberDisplayName) || [];
   const eligibleDirigentes = getEligibleDirigentes(basicData.type, members || [], basicData.is_transmissao_assistencia);
   const eligibleExplanadores = members?.filter((member) => member.grau !== "Quadro de Sócios") || [];
   const mestresAssistentes = members?.filter((member) => member.grau === "Quadro de Mestre") || [];
-  const dirigenteInvalido = !isEligibleDirigente(basicData.type, basicData.dirigente, members || [], basicData.is_transmissao_assistencia);
-  const segundoDirigenteInvalido = !isEligibleDirigente(basicData.type, basicData.segundo_dirigente, members || [], basicData.is_transmissao_assistencia);
-  const mestreAssistenteInvalido = !isEligibleMestreAssistente(basicData.mestre_assistente, members || []);
-  const explanadorInvalido = !isEligibleExplanador(basicData.explanador, members || []);
+  const dirigenteInvalido = dirigenteChanged
+    && !isEligibleDirigente(basicData.type, basicData.dirigente, members || [], basicData.is_transmissao_assistencia);
+  const segundoDirigenteInvalido = segundoDirigenteChanged
+    && !isEligibleDirigente(basicData.type, basicData.segundo_dirigente, members || [], basicData.is_transmissao_assistencia);
+  const mestreAssistenteInvalido = mestreAssistenteChanged
+    && !isEligibleMestreAssistente(basicData.mestre_assistente, members || []);
+  const explanadorInvalido = explanadorChanged
+    && !isEligibleExplanador(basicData.explanador, members || []);
 
   const handleSubmit = async () => {
     if (!id || updateSession.isPending) return;
@@ -164,10 +182,16 @@ export default function EditarSessao() {
       type: basicData.type,
       dirigente: basicData.dirigente,
       segundoDirigente: basicData.is_transmissao_assistencia ? basicData.segundo_dirigente : undefined,
-      explanador: showExplanadorLeitor ? basicData.explanador : undefined,
-      leitor: showExplanadorLeitor ? basicData.leitor : undefined,
+      explanador: nextExplanador || undefined,
+      leitor: nextLeitor || undefined,
       mestreAssistente: basicData.mestre_assistente,
       onlyQuadroDeMestre: basicData.is_transmissao_assistencia,
+      validateEligibility: {
+        dirigente: dirigenteChanged,
+        segundoDirigente: segundoDirigenteChanged,
+        explanador: explanadorChanged,
+        mestreAssistente: mestreAssistenteChanged,
+      },
       members: members || [],
     });
     if (roleValidationError) {
@@ -182,15 +206,15 @@ export default function EditarSessao() {
     const updates = {
       date: basicData.date,
       type: basicData.type,
-      dirigente: basicData.dirigente,
-      explanador: showExplanadorLeitor ? basicData.explanador : null,
-      leitor: showExplanadorLeitor ? basicData.leitor : null,
-      mestre_assistente: basicData.mestre_assistente,
       has_photo: contentData.has_photo,
       has_audio: contentData.has_audio,
       observation: fullObservation || null,
       participants,
       total_participants: totalParticipants,
+      ...(dirigenteChanged ? { dirigente: basicData.dirigente } : {}),
+      ...(explanadorChanged ? { explanador: nextExplanador } : {}),
+      ...(leitorChanged ? { leitor: nextLeitor } : {}),
+      ...(mestreAssistenteChanged ? { mestre_assistente: basicData.mestre_assistente } : {}),
     };
 
     updateSession.mutate(
