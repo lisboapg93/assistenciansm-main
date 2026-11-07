@@ -119,9 +119,18 @@ export function decodeCsvBuffer(buffer: ArrayBuffer): { text: string; encoding: 
   if (bytes[0] === 0xfe && bytes[1] === 0xff) {
     return { text: new TextDecoder("utf-16be").decode(bytes), encoding: "utf-16be" };
   }
-  // UTF-16 sem BOM aparece como texto com bytes nulos.
+  // UTF-16 sem BOM aparece como texto com bytes nulos. Em LE o nulo de um
+  // caractere ASCII fica em posição ímpar; em BE, em posição par.
   if (bytes.includes(0)) {
-    return { text: new TextDecoder("utf-16le").decode(bytes), encoding: "utf-16le" };
+    let evenNulls = 0;
+    let oddNulls = 0;
+    for (let i = 0; i < bytes.length; i++) {
+      if (bytes[i] !== 0) continue;
+      if (i % 2 === 0) evenNulls++;
+      else oddNulls++;
+    }
+    const encoding = evenNulls > oddNulls ? "utf-16be" : "utf-16le";
+    return { text: new TextDecoder(encoding).decode(bytes), encoding };
   }
 
   try {

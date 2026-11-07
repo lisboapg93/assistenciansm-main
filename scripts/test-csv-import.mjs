@@ -75,5 +75,11 @@ const utf16 = decodeCsvBuffer(toBuffer([0xff, 0xfe, ...Buffer.from("João", "utf
 assert.equal(utf16.text, "João");
 assert.equal(utf16.encoding, "utf-16le");
 assert.equal(decodeCsvBuffer(toBuffer([...Buffer.from("Sessão", "utf16le")])).text, "Sessão");
+const beBytes = Buffer.from("Sessão;João", "utf16le").swap16();
+const be = decodeCsvBuffer(toBuffer([...beBytes]));
+assert.equal(be.text, "Sessão;João");
+assert.equal(be.encoding, "utf-16be");
+const beBom = decodeCsvBuffer(toBuffer([0xfe, 0xff, ...beBytes]));
+assert.equal(beBom.text.replace(/^\uFEFF/, ""), "Sessão;João");
 
 console.log("Regressões de aliases, cabeçalhos incompletos/ambíguos, CSV posicional e codificação: OK");
