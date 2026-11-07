@@ -108,7 +108,7 @@ export default function Erros() {
         entity: error.entity,
         entityId: error.entity_id,
         message: getErrorMessage(error.error_message),
-        code: null,
+        code: typeof error.metadata.error_code === "string" ? error.metadata.error_code : null,
         location: error.error_location,
         userId: error.user_id,
         occurredAt: error.occurred_at,

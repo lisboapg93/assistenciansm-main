@@ -35,6 +35,7 @@ import { registerSessionWithConsumption } from "@/lib/sessionRegistration";
 import { isStockQuantity, sumStockQuantities } from "@/lib/stockQuantity";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { areParticipantsValid } from "@/lib/sessionData";
+import { CSV_TEMPLATE_HEADERS, mapSessionCsvRows } from "@/lib/sessionCsv";
 
 interface CsvImportDialogProps {
   open: boolean;
@@ -66,28 +67,6 @@ interface ParsedSession {
   isValid: boolean;
   errors: string[];
 }
-
-const CSV_TEMPLATE_HEADERS = [
-  "data",
-  "tipo",
-  "dirigente",
-  "mestre_assistente",
-  "registrado_por",
-  "explanador",
-  "leitor",
-  "mestres",
-  "conselheiros",
-  "instrutivo",
-  "socios",
-  "visitantes",
-  "jovens",
-  "consumo_total",
-  "vegetal_unido",
-  "tem_foto",
-  "tem_audio",
-  "observacao",
-  "fontes_vegetal",
-];
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -331,16 +310,6 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
     };
   };
 
-  const normalizeHeader = (value: string) =>
-    value
-      .replace(/^\uFEFF/, "")
-      .trim()
-      .toLowerCase()
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "");
-
   const readFileText = (selectedFile: File, encoding?: string) =>
     new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -400,73 +369,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       return [];
     }
 
-    const CANONICAL_COLUMNS = [
-      "data",
-      "tipo",
-      "dirigente",
-      "mestre_assistente",
-      "registrado_por",
-      "explanador",
-      "leitor",
-      "mestres",
-      "conselheiros",
-      "instrutivo",
-      "socios",
-      "visitantes",
-      "jovens",
-      "consumo_total",
-      "vegetal_unido",
-      "tem_foto",
-      "tem_audio",
-      "observacao",
-      "fontes_vegetal",
-    ] as const;
-
-    const HEADER_ALIASES: Record<(typeof CANONICAL_COLUMNS)[number], string[]> = {
-      data: ["data", "date", "dt"],
-      tipo: ["tipo", "type", "tipo_de_sessao", "tipo_sessao", "sessao"],
-      dirigente: ["dirigente", "dirigente_nome"],
-      mestre_assistente: ["mestre_assistente", "mestre_assistente_nome", "assistente", "m_assistente"],
-      registrado_por: ["registrado_por", "registered_by_name", "cadastrado_por", "responsavel_registro"],
-      explanador: ["explanador", "explanador_nome"],
-      leitor: ["leitor", "leitor_nome"],
-      mestres: ["mestres", "mestre", "qtd_mestres"],
-      conselheiros: ["conselheiros", "conselheiro", "qtd_conselheiros", "conselho"],
-      instrutivo: ["instrutivo", "qtd_instrutivo", "corpo_instrutivo"],
-      socios: ["socios", "socio", "qtd_socios"],
-      visitantes: ["visitantes", "visitante", "qtd_visitantes"],
-      jovens: ["jovens", "jovem", "qtd_jovens"],
-      consumo_total: ["consumo_total", "consumo", "total_consumed", "quantidade_vegetal", "qtd_vegetal", "vegetal_consumido", "litros", "quantidade"],
-      vegetal_unido: ["vegetal_unido", "unido", "is_united", "vegetal_e_unido"],
-      tem_foto: ["tem_foto", "foto", "has_photo", "registro_fotografico", "registro_foto", "fotografico"],
-      tem_audio: ["tem_audio", "audio", "has_audio", "registro_audio", "gravacao"],
-      observacao: ["observacao", "observacao_sessao", "observation", "acontecimento", "acontecimentos", "obs", "observacoes", "acontecimento_na_sessao"],
-      fontes_vegetal: ["fontes_vegetal", "fontes", "lotes_vegetal", "lotes"],
-    };
-
-    const headerRow = rows[0];
-    const headerNorm = headerRow.map(normalizeHeader);
-
-    const hasHeader =
-      headerNorm.includes("data") ||
-      headerNorm.includes("tipo") ||
-      headerNorm.includes("dirigente") ||
-      headerNorm.includes("mestre_assistente");
-
-    const indexByColumn = CANONICAL_COLUMNS.reduce((acc, col) => {
-      if (!hasHeader) {
-        acc[col] = null;
-        return acc;
-      }
-
-      const aliases = (HEADER_ALIASES[col] ?? [col]).map(normalizeHeader);
-      const idx = headerNorm.findIndex((h) => aliases.includes(h));
-      acc[col] = idx >= 0 ? idx : null;
-      return acc;
-    }, {} as Record<(typeof CANONICAL_COLUMNS)[number], number | null>);
-
-    const mappedCount = Object.values(indexByColumn).filter((v) => v !== null).length;
-    const canUseHeaderMapping = hasHeader && mappedCount >= 3;
+    const mapping = mapSessionCsvRows(rows);
 
     setParseInfo({
       delimiter: forcedDelimiter ?? result.meta.delimiter,
@@ -474,34 +377,24 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       parseErrors: parseErrors.length ? parseErrors.slice(0, 5) : [],
     });
 
-    if (hasHeader && !canUseHeaderMapping) {
-      toast.warning("Cabeçalho não reconhecido; usando a posição das colunas.");
+    if (mapping.error) {
+      setParseInfo({
+        delimiter: forcedDelimiter ?? result.meta.delimiter,
+        encoding: opts?.encoding,
+        parseErrors: [mapping.error],
+      });
+      toast.error(mapping.error);
+      return [];
     }
 
-    const dataRows = hasHeader ? rows.slice(1) : rows;
-    if (dataRows.length < 1) {
+    if (mapping.rows.length < 1) {
       toast.error("O CSV deve ter pelo menos uma linha de dados além do cabeçalho");
       return [];
     }
 
-    // Convert rows to objects with canonical column names
-    const preparedRows: Record<string, string>[] = dataRows.map((row) => {
-      const obj: Record<string, string> = {};
-      CANONICAL_COLUMNS.forEach((col, defaultIdx) => {
-        if (canUseHeaderMapping) {
-          const idx = indexByColumn[col];
-          obj[col] = idx !== null ? (row[idx] ?? "") : "";
-        } else {
-          // Fallback to positional mapping
-          obj[col] = row[defaultIdx] ?? "";
-        }
-      });
-      return obj;
-    });
-
-    return preparedRows.map((row, index) => ({
-      ...validateRow(row),
-      rowNumber: index + (hasHeader ? 2 : 1),
+    return mapping.rows.map(({ values, rowNumber }) => ({
+      ...validateRow(values),
+      rowNumber,
     }));
   };
 

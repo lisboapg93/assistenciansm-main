@@ -280,6 +280,7 @@ export default function Estoque() {
 
       {/* Detail Modal */}
       <VegetalDetailModal
+        key={selectedVegetal?.id ?? "closed"}
         vegetal={vegetais?.find((lot) => lot.id === selectedVegetal?.id) || selectedVegetal}
         members={members}
         open={!!selectedVegetal}

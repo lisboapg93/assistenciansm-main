@@ -32,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   getDirigenteRuleDescription,
   getEligibleDirigentes,
+  getSessionRoleEligibilityChecks,
   getSessionRoleValidationError,
   isEligibleDirigente,
   isEligibleExplanador,
@@ -138,17 +139,31 @@ export default function EditarSessao() {
   const nextExplanador = showExplanadorLeitor ? basicData.explanador : null;
   const nextLeitor = showExplanadorLeitor ? basicData.leitor : null;
   const dirigenteChanged = !hasSameRoleValue(basicData.dirigente, session?.dirigente);
-  const segundoDirigenteChanged = !hasSameRoleValue(basicData.segundo_dirigente, originalSegundoDirigente);
   const explanadorChanged = !hasSameRoleValue(nextExplanador, session?.explanador);
   const leitorChanged = !hasSameRoleValue(nextLeitor, session?.leitor);
   const mestreAssistenteChanged = !hasSameRoleValue(basicData.mestre_assistente, session?.mestre_assistente);
+  const eligibilityChecks = getSessionRoleEligibilityChecks({
+    type: basicData.type,
+    isTransmissaoAssistencia: basicData.is_transmissao_assistencia,
+    dirigente: basicData.dirigente,
+    segundoDirigente: basicData.segundo_dirigente,
+    explanador: nextExplanador,
+    mestreAssistente: basicData.mestre_assistente,
+  }, {
+    type: session?.type || "",
+    isTransmissaoAssistencia: Boolean(originalTransmission),
+    dirigente: session?.dirigente || "",
+    segundoDirigente: originalSegundoDirigente,
+    explanador: session?.explanador,
+    mestreAssistente: session?.mestre_assistente,
+  });
   const memberNames = members?.map(getMemberDisplayName) || [];
   const eligibleDirigentes = getEligibleDirigentes(basicData.type, members || [], basicData.is_transmissao_assistencia);
   const eligibleExplanadores = members?.filter((member) => member.grau !== "Quadro de Sócios") || [];
   const mestresAssistentes = members?.filter((member) => member.grau === "Quadro de Mestre") || [];
-  const dirigenteInvalido = dirigenteChanged
+  const dirigenteInvalido = eligibilityChecks.dirigente
     && !isEligibleDirigente(basicData.type, basicData.dirigente, members || [], basicData.is_transmissao_assistencia);
-  const segundoDirigenteInvalido = segundoDirigenteChanged
+  const segundoDirigenteInvalido = eligibilityChecks.segundoDirigente
     && !isEligibleDirigente(basicData.type, basicData.segundo_dirigente, members || [], basicData.is_transmissao_assistencia);
   const mestreAssistenteInvalido = mestreAssistenteChanged
     && !isEligibleMestreAssistente(basicData.mestre_assistente, members || []);
@@ -186,12 +201,7 @@ export default function EditarSessao() {
       leitor: nextLeitor || undefined,
       mestreAssistente: basicData.mestre_assistente,
       onlyQuadroDeMestre: basicData.is_transmissao_assistencia,
-      validateEligibility: {
-        dirigente: dirigenteChanged,
-        segundoDirigente: segundoDirigenteChanged,
-        explanador: explanadorChanged,
-        mestreAssistente: mestreAssistenteChanged,
-      },
+      validateEligibility: eligibilityChecks,
       members: members || [],
     });
     if (roleValidationError) {

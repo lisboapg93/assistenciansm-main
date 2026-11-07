@@ -62,8 +62,8 @@ function buildSessionsQuery(filters?: SessionFilters, withCount = false) {
       query = query.gte("date", startDate).lt("date", endDate);
     }
 
-    if (filters?.month !== undefined && filters.month >= 0) {
-      const year = filters.year || Number(todayBrazilianIsoDate().slice(0, 4));
+    if (filters?.year && filters.month !== undefined && filters.month >= 0) {
+      const year = filters.year;
       const startDate = toUtcDateBoundaryIso(year, filters.month, 1);
       const endDate = toUtcDateBoundaryIso(year, filters.month + 1, 1);
       query = query.gte("date", startDate).lt("date", endDate);

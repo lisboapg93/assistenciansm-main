@@ -32,7 +32,7 @@ import { SESSION_TYPES, TYPES_WITH_EXPLANADOR_LEITOR, PARTICIPANT_LABELS, Partic
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { registerSessionWithConsumption } from "@/lib/sessionRegistration";
-import { getErrorMessage } from "@/lib/errorLogging";
+import { getErrorMessage, getUniqueViolationEntity } from "@/lib/errorLogging";
 import { todayBrazilianIsoDate } from "@/lib/date";
 import { isStockQuantity, sumStockQuantities } from "@/lib/stockQuantity";
 import { QueryError } from "@/components/QueryError";
@@ -282,7 +282,7 @@ export default function NovaSessao() {
       try {
         await registerSessionWithConsumption(sessionData, consumptionData.sources, namesToAdd);
       } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && error.code === "23505") {
+        if (getUniqueViolationEntity(error) === "session") {
           toast.warning("Esta sessão já foi registrada. Não foi criada uma nova duplicata.");
           navigate("/historico");
           return;

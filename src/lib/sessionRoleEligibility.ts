@@ -17,6 +17,29 @@ const TIPOS_SESSAO_ESCALA = ["Primeira Escala", "Segunda Escala", "Escala Anual"
 const findMember = (members: MemberRoleData[], name: string) =>
   members.find((member) => isMemberName(member, name));
 
+interface SessionRoleAssignment {
+  type: string;
+  isTransmissaoAssistencia: boolean;
+  dirigente: string;
+  segundoDirigente?: string;
+  explanador?: string | null;
+  mestreAssistente?: string | null;
+}
+
+export function getSessionRoleEligibilityChecks(current: SessionRoleAssignment, original: SessionRoleAssignment) {
+  const contextChanged = current.type !== original.type
+    || current.isTransmissaoAssistencia !== original.isTransmissaoAssistencia;
+  const changed = (name: string | null | undefined, previous: string | null | undefined) =>
+    getMemberIdentityKey(name || "") !== getMemberIdentityKey(previous || "");
+
+  return {
+    dirigente: contextChanged || changed(current.dirigente, original.dirigente),
+    segundoDirigente: contextChanged || changed(current.segundoDirigente, original.segundoDirigente),
+    explanador: changed(current.explanador, original.explanador),
+    mestreAssistente: changed(current.mestreAssistente, original.mestreAssistente),
+  };
+}
+
 export function getEligibleDirigentes<T extends MemberRoleData>(
   type: string,
   members: T[],

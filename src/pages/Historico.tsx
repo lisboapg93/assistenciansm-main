@@ -127,7 +127,7 @@ export default function Historico() {
   const sessionFilters = useMemo(() => ({
     search: filters.search,
     year: filters.lastMonths ? undefined : filters.year,
-    month: filters.lastMonths ? undefined : filters.month,
+    month: filters.lastMonths || filters.year === undefined ? undefined : filters.month,
     types: filters.types.length > 0 ? filters.types : undefined,
     lastMonths: filters.lastMonths,
   }), [filters]);
@@ -294,7 +294,11 @@ export default function Historico() {
               <Select
                 value={filters.year?.toString() || "all"}
                 onValueChange={(value) =>
-                  setFilters({ ...filters, year: value === "all" ? undefined : parseInt(value) })
+                  setFilters({
+                    ...filters,
+                    year: value === "all" ? undefined : parseInt(value),
+                    month: value === "all" ? undefined : filters.month,
+                  })
                 }
                 disabled={!!filters.lastMonths}
               >
@@ -311,7 +315,7 @@ export default function Historico() {
                 </SelectContent>
               </Select>
 
-              {/* Mês - desabilitado quando período está selecionado */}
+              {/* Mês exige um ano explícito e não se aplica ao período relativo */}
               <Select
                 value={filters.month?.toString() || "all"}
                 onValueChange={(value) =>
@@ -320,9 +324,12 @@ export default function Historico() {
                     month: value === "all" ? undefined : parseInt(value),
                   })
                 }
-                disabled={!!filters.lastMonths}
+                disabled={!!filters.lastMonths || filters.year === undefined}
               >
-                <SelectTrigger className={filters.lastMonths ? "opacity-50" : ""}>
+                <SelectTrigger
+                  className={filters.lastMonths || filters.year === undefined ? "opacity-50" : ""}
+                  title={filters.year === undefined ? "Selecione um ano para filtrar por mês" : undefined}
+                >
                   <SelectValue placeholder="Mês" />
                 </SelectTrigger>
                 <SelectContent>

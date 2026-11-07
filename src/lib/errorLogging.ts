@@ -1,10 +1,15 @@
 import { supabase } from "@/integrations/supabase/client";
+import {
+  getErrorCode, getErrorConstraint, getErrorDiagnostics, getRawErrorMessage,
+  getUniqueViolationEntity, sanitizeLogText, SENSITIVE_LOG_FIELD_PATTERN,
+} from "@/lib/errorDiagnostics";
+
+export { getUniqueViolationEntity } from "@/lib/errorDiagnostics";
 
 type ErrorLogMetadataValue = string | number | boolean | null;
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
 
-const SENSITIVE_FIELD_PATTERN = /password|token|secret|authorization|cookie|api_?key/i;
 const MUTATING_OPERATIONS = new Set(["create", "update", "delete", "import"]);
 
 export interface ErrorLogContext {
@@ -16,23 +21,6 @@ export interface ErrorLogContext {
   inputPayload?: unknown;
 }
 
-interface ErrorWithDetails {
-  message?: unknown;
-  code?: unknown;
-}
-
-function getRawErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-
-  if (typeof error === "object" && error !== null) {
-    const message = (error as ErrorWithDetails).message;
-    if (typeof message === "string" && message.trim()) return message;
-  }
-
-  if (typeof error === "string" && error.trim()) return error;
-  return "";
-}
-
 function isPortugueseMessage(message: string): boolean {
   return /\b(não|nao|erro|falha|sessão|sessao|usuário|usuario|membro|dados?|campo|obrigatóri|inválid|invalíd|permissão|permissao|estoque|saldo|vegetal|fontes|insuficiente|quantidade|já|ja|exist|registro|conexão|conexao|atualiz|exclu|cadastr|salv|encontr|tente|acesso)\b/iu.test(message);
 }
@@ -41,6 +29,9 @@ export function getErrorMessage(error: unknown): string {
   const rawMessage = getRawErrorMessage(error).trim();
   const normalizedMessage = rawMessage.toLocaleLowerCase("en-US");
 
+  const duplicateEntity = getUniqueViolationEntity(error);
+  if (duplicateEntity === "session") return "Esta sessão já foi registrada.";
+  if (duplicateEntity === "members") return "Já existe um membro com este nome.";
   if (!rawMessage) return "Ocorreu um erro inesperado. Tente novamente.";
   if (isPortugueseMessage(rawMessage)) return rawMessage;
 
@@ -98,16 +89,10 @@ export function getErrorMessage(error: unknown): string {
   return "Ocorreu um erro inesperado ao processar a operação. Tente novamente.";
 }
 
-function getErrorCode(error: unknown): string | null {
-  if (typeof error !== "object" || error === null) return null;
-  const code = (error as ErrorWithDetails).code;
-  return typeof code === "string" || typeof code === "number" ? String(code) : null;
-}
-
 function sanitizePayload(value: unknown, depth = 0): JsonValue {
   if (value === null) return null;
   if (typeof value === "boolean") return value;
-  if (typeof value === "string") return value.slice(0, 1000);
+  if (typeof value === "string") return sanitizeLogText(value);
   if (typeof value === "number") return Number.isFinite(value) ? value : String(value);
   if (depth >= 5) return "[profundidade máxima]";
 
@@ -118,7 +103,7 @@ function sanitizePayload(value: unknown, depth = 0): JsonValue {
   if (typeof value === "object") {
     const payload: JsonObject = {};
     for (const [key, item] of Object.entries(value)) {
-      payload[key] = SENSITIVE_FIELD_PATTERN.test(key)
+      payload[key] = SENSITIVE_LOG_FIELD_PATTERN.test(key)
         ? "[oculto]"
         : sanitizePayload(item, depth + 1);
     }
@@ -142,34 +127,31 @@ type OperationFailureLogRpc = (
   },
 ) => Promise<{ data: string | null; error: { message: string } | null }>;
 
-async function logOperationFailure(error: unknown, context: ErrorLogContext): Promise<void> {
+async function logOperationFailure(error: unknown, context: ErrorLogContext, metadata: JsonObject): Promise<void> {
   if (!context.operation || !MUTATING_OPERATIONS.has(context.operation)) return;
 
   const inputPayload = sanitizePayload(context.inputPayload ?? {});
-  const metadata = sanitizePayload(context.metadata ?? {});
   const rpc = supabase.rpc.bind(supabase) as unknown as OperationFailureLogRpc;
 
   try {
     const { error: loggingError } = await rpc("log_operation_failure", {
       p_error_code: getErrorCode(error),
       p_error_location: context.location,
-      p_error_message: getErrorMessage(error),
+      p_error_message: sanitizeLogText(getErrorMessage(error)),
       p_entity: context.entity || "unknown",
       p_entity_id: context.entityId || null,
       p_input_payload: typeof inputPayload === "object" && !Array.isArray(inputPayload)
         ? inputPayload as JsonObject
         : {},
-      p_metadata: typeof metadata === "object" && !Array.isArray(metadata)
-        ? metadata as JsonObject
-        : {},
+      p_metadata: metadata,
       p_operation: context.operation as "create" | "update" | "delete" | "import",
     });
 
     if (loggingError) {
-      console.error("[operation-error-logging] Não foi possível persistir o log", loggingError);
+      console.error("[operation-error-logging] Não foi possível persistir o log", getErrorDiagnostics(loggingError));
     }
   } catch (loggingError) {
-    console.error("[operation-error-logging] Falha inesperada ao persistir o log", loggingError);
+    console.error("[operation-error-logging] Falha inesperada ao persistir o log", getErrorDiagnostics(loggingError));
   }
 }
 
@@ -177,14 +159,14 @@ export async function logApplicationError(
   error: unknown,
   context: ErrorLogContext,
 ): Promise<void> {
-  const message = getErrorMessage(error);
-  const errorCode = getErrorCode(error);
+  const message = sanitizeLogText(getErrorMessage(error));
+  const safeContext = sanitizePayload(context.metadata ?? {}) as JsonObject;
   const metadata = {
-    ...context.metadata,
-    ...(errorCode ? { error_code: errorCode } : {}),
+    ...safeContext,
+    ...getErrorDiagnostics(error),
   };
 
-  console.error(`[${context.location}] ${message}`, error);
+  console.error(`[${context.location}] ${message}`, metadata);
 
   try {
     const { error: loggingError } = await supabase.rpc("log_application_error", {
@@ -197,14 +179,14 @@ export async function logApplicationError(
     });
 
     if (loggingError) {
-      console.error("[error-logging] Não foi possível persistir o log", loggingError);
+      console.error("[error-logging] Não foi possível persistir o log", getErrorDiagnostics(loggingError));
     }
   } catch (loggingError) {
     // O registro de um log nunca deve esconder ou substituir o erro original.
-    console.error("[error-logging] Falha inesperada ao persistir o log", loggingError);
+    console.error("[error-logging] Falha inesperada ao persistir o log", getErrorDiagnostics(loggingError));
   }
 
-  await logOperationFailure(error, context);
+  await logOperationFailure(error, context, metadata);
 }
 
 export async function logAndThrow(
@@ -214,6 +196,8 @@ export async function logAndThrow(
   await logApplicationError(error, context);
   const publicError = new Error(getErrorMessage(error));
   const code = getErrorCode(error);
+  const constraint = getErrorConstraint(error);
   if (code) Object.assign(publicError, { code });
+  if (constraint) Object.assign(publicError, { constraint });
   throw publicError;
 }
