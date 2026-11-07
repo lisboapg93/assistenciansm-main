@@ -9,7 +9,7 @@ const { outputFiles } = buildSync({
 });
 const module = { exports: {} };
 new Function("module", "exports", outputFiles[0].text)(module, module.exports);
-const { mapSessionCsvRows, CSV_TEMPLATE_HEADERS } = module.exports;
+const { mapSessionCsvRows, CSV_TEMPLATE_HEADERS, decodeCsvBuffer } = module.exports;
 
 // O cabeçalho reordena dirigente/assistente. O antigo fallback posicional
 // aceitava as duas pessoas nas funções trocadas e também importava o cabeçalho.
@@ -62,4 +62,18 @@ const normalized = mapSessionCsvRows([
 assert.equal(normalized.error, undefined);
 assert.equal(normalized.rows[0].values.observacao, "Sessão");
 assert.equal(mapSessionCsvRows([CSV_TEMPLATE_HEADERS]).rows.length, 0);
-console.log("Regressões de aliases, cabeçalhos incompletos/ambíguos e CSV posicional: OK");
+
+// Excel pt-BR salva em Windows-1252; ler como UTF-8 gerava "Jo�o".
+const toBuffer = (bytes) => new Uint8Array(bytes).buffer;
+const ansi = decodeCsvBuffer(toBuffer([0x4a, 0x6f, 0xe3, 0x6f, 0x3b, 0x4e, 0xe3, 0x6f]));
+assert.equal(ansi.text, "João;Não");
+assert.equal(ansi.encoding, "windows-1252");
+const utf8 = decodeCsvBuffer(toBuffer([0xef, 0xbb, 0xbf, ...Buffer.from("João;Não", "utf8")]));
+assert.equal(utf8.text, "João;Não");
+assert.equal(utf8.encoding, "utf-8");
+const utf16 = decodeCsvBuffer(toBuffer([0xff, 0xfe, ...Buffer.from("João", "utf16le")]));
+assert.equal(utf16.text, "João");
+assert.equal(utf16.encoding, "utf-16le");
+assert.equal(decodeCsvBuffer(toBuffer([...Buffer.from("Sessão", "utf16le")])).text, "Sessão");
+
+console.log("Regressões de aliases, cabeçalhos incompletos/ambíguos, CSV posicional e codificação: OK");

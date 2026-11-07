@@ -104,3 +104,29 @@ export function mapSessionCsvRows(rows: string[][]) {
   });
   return { rows: preparedRows, hasHeader, error: undefined };
 }
+
+/**
+ * Decodifica os bytes de um CSV. O Excel pt-BR salva "CSV" em Windows-1252 por
+ * padrão, o que não é UTF-8 válido; ler esse arquivo como UTF-8 troca acentos
+ * por U+FFFD e faz o RPC criar membros com nomes corrompidos.
+ */
+export function decodeCsvBuffer(buffer: ArrayBuffer): { text: string; encoding: string } {
+  const bytes = new Uint8Array(buffer);
+
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return { text: new TextDecoder("utf-16le").decode(bytes), encoding: "utf-16le" };
+  }
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return { text: new TextDecoder("utf-16be").decode(bytes), encoding: "utf-16be" };
+  }
+  // UTF-16 sem BOM aparece como texto com bytes nulos.
+  if (bytes.includes(0)) {
+    return { text: new TextDecoder("utf-16le").decode(bytes), encoding: "utf-16le" };
+  }
+
+  try {
+    return { text: new TextDecoder("utf-8", { fatal: true }).decode(bytes), encoding: "utf-8" };
+  } catch {
+    return { text: new TextDecoder("windows-1252").decode(bytes), encoding: "windows-1252" };
+  }
+}

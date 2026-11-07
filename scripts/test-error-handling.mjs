@@ -122,3 +122,42 @@ test("credenciais em mensagens, JSON escapado e cabeçalhos não chegam aos logs
   }, context);
   assert.doesNotMatch(JSON.stringify(calls), /senha com espaços|chave-erro|privado|credencial-codificada|valor-cookie|outro-cookie|outra-credencial/);
 });
+
+test("mensagens de validação do servidor acentuadas e no plural chegam ao usuário", () => {
+  const { getErrorMessage } = fixture();
+  for (const message of [
+    "Participantes inválidos",
+    "Consumo inválido",
+    "Tipo de movimentação inválido",
+    "Total de participantes inválido ou diferente da soma dos grupos",
+    "A transmissão exige um tipo permitido e o segundo dirigente",
+    "Consumo deve ser positivo com no máximo 2 casas decimais",
+  ]) {
+    assert.equal(getErrorMessage(new Error(message)), message);
+  }
+});
+
+test("erros do Postgres em inglês que citam vegetal continuam traduzidos", () => {
+  const { getErrorMessage } = fixture();
+  assert.equal(
+    getErrorMessage({ message: 'new row violates row-level security policy for table "vegetal"' }),
+    "Você não tem permissão para realizar esta operação.",
+  );
+  assert.equal(
+    getErrorMessage({ message: 'null value in column "name" of relation "vegetal" violates not-null constraint' }),
+    "Preencha todos os campos obrigatórios.",
+  );
+  assert.match(getErrorMessage({ message: "exclusion constraint violation" }), /inesperado/);
+});
+
+test("getErrorMessage é idempotente depois de logAndThrow", async () => {
+  const { logAndThrow, getErrorMessage } = fixture();
+  await assert.rejects(
+    logAndThrow({ message: 'null value in column "name" violates not-null constraint' }, context),
+    (error) => {
+      assert.equal(error.message, "Preencha todos os campos obrigatórios.");
+      assert.equal(getErrorMessage(error), "Preencha todos os campos obrigatórios.");
+      return true;
+    },
+  );
+});

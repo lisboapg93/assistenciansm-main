@@ -106,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAuthError(null);
     };
 
+    let missingProfile = false;
     try {
       const { data, error } = await supabase
         .from("user_roles")
@@ -120,19 +121,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Dados anteriores à restrição de um papel por conta podem conter mais
       // de uma linha. A precedência coincide com as permissões do banco.
       const roles = new Set(data?.map(({ role }) => role) ?? []);
-      if (!roles.size) throw new Error("Sua conta não possui um perfil de acesso. Contate o responsável pelo sistema.");
+      if (!roles.size) {
+        missingProfile = true;
+        throw new Error("Sua conta não possui um perfil de acesso. Contate o responsável pelo sistema.");
+      }
       applyRole(roles.has("editor") ? "editor" : roles.has("assistant") ? "assistant" : "viewer");
     } catch (err) {
       if (authEventIdRef.current !== eventId) return;
-      userRoleRef.current = null;
-      setUserRole(null);
-      setAuthError(getErrorMessage(err));
       void logApplicationError(err, {
         location: "AuthContext.fetchUserRole",
         operation: "read",
         entity: "user_roles",
         entityId: userId,
       });
+      // Falha transitória (rede, timeout) ao revalidar não pode expulsar quem já
+      // tem papel conhecido: a tela de erro desmontaria o formulário em edição.
+      // Só a ausência confirmada de perfil remove o acesso.
+      if (userRoleRef.current && !missingProfile) return;
+      userRoleRef.current = null;
+      setUserRole(null);
+      setAuthError(getErrorMessage(err));
     }
   }, [queryClient]);
 

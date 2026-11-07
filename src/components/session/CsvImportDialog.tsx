@@ -35,7 +35,7 @@ import { registerSessionWithConsumption } from "@/lib/sessionRegistration";
 import { isStockQuantity, sumStockQuantities } from "@/lib/stockQuantity";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { areParticipantsValid } from "@/lib/sessionData";
-import { CSV_TEMPLATE_HEADERS, mapSessionCsvRows } from "@/lib/sessionCsv";
+import { CSV_TEMPLATE_HEADERS, decodeCsvBuffer, mapSessionCsvRows } from "@/lib/sessionCsv";
 
 interface CsvImportDialogProps {
   open: boolean;
@@ -310,14 +310,6 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
     };
   };
 
-  const readFileText = (selectedFile: File, encoding?: string) =>
-    new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(reader.error);
-      reader.onload = () => resolve(String(reader.result ?? ""));
-      reader.readAsText(selectedFile, encoding);
-    });
-
   const parseCSV = (text: string, opts?: { encoding?: string }): ParsedSession[] => {
     const cleaned = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
     const trimmed = cleaned.trim();
@@ -411,7 +403,8 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
+    const input = e.target;
+    const selectedFile = input.files?.[0];
     if (!selectedFile) return;
 
     if (!selectedFile.name.toLowerCase().endsWith(".csv")) {
@@ -422,19 +415,14 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
     setFile(selectedFile);
 
     try {
-      let text = await readFileText(selectedFile);
-      let encoding = "utf-8";
-
-      // Se vier com muitos \0 (comum em UTF-16), tentamos novamente.
-      if (text.includes("\u0000")) {
-        text = await readFileText(selectedFile, "utf-16le");
-        encoding = "utf-16le";
-      }
-
+      const { text, encoding } = decodeCsvBuffer(await selectedFile.arrayBuffer());
       loadTextToPreview(text, { encoding });
     } catch (err) {
       console.error("Erro ao ler CSV:", err);
       toast.error("Não foi possível ler o arquivo CSV");
+    } finally {
+      // Sem isso, reselecionar o mesmo arquivo corrigido não dispara "change".
+      input.value = "";
     }
   };
 

@@ -21,11 +21,34 @@ export interface ErrorLogContext {
   inputPayload?: unknown;
 }
 
+// Mensagens já traduzidas por getErrorMessage. Evita traduzir duas vezes: a
+// segunda passada não reconhecia a frase e a trocava pelo texto genérico.
+const publicErrors = new WeakSet<Error>();
+
+const PORTUGUESE_WORDS = new Set([
+  "não", "nao", "erro", "falha", "sessão", "sessao", "sessões", "usuário", "usuario", "membro", "membros",
+  "dado", "dados", "campo", "campos", "permissão", "permissao", "estoque", "saldo", "vegetal", "fontes",
+  "insuficiente", "quantidade", "já", "ja", "existe", "existem", "existente", "registro", "conexão", "conexao",
+  "tente", "acesso", "deve", "devem", "consumo", "tipo", "grupo", "positivo", "máximo", "maximo",
+  "exige", "permitido", "diferente", "soma", "participantes", "movimentação", "movimentacao", "preencha",
+  "informe", "selecione", "lote", "lotes", "dirigente", "explanador", "leitor",
+]);
+const PORTUGUESE_STEMS = [
+  "obrigatóri", "inválid", "invalíd", "atualiz", "cadastr", "salv", "encontr", "participante",
+  "transmissã", "preench", "selecion", "excluí", "excluir", "excluíd",
+];
+
+// \b do JS só conhece ASCII, então palavras acentuadas e radicais ("inválid"
+// de "inválidos") nunca casavam. Compara palavra por palavra, com Unicode.
 function isPortugueseMessage(message: string): boolean {
-  return /\b(não|nao|erro|falha|sessão|sessao|usuário|usuario|membro|dados?|campo|obrigatóri|inválid|invalíd|permissão|permissao|estoque|saldo|vegetal|fontes|insuficiente|quantidade|já|ja|exist|registro|conexão|conexao|atualiz|exclu|cadastr|salv|encontr|tente|acesso)\b/iu.test(message);
+  const words = message.toLocaleLowerCase("pt-BR").match(/[\p{L}\p{N}_]+/gu) ?? [];
+  return words.some((word) =>
+    PORTUGUESE_WORDS.has(word) || PORTUGUESE_STEMS.some((stem) => word.startsWith(stem)));
 }
 
 export function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && publicErrors.has(error)) return error.message;
+
   const rawMessage = getRawErrorMessage(error).trim();
   const normalizedMessage = rawMessage.toLocaleLowerCase("en-US");
 
@@ -33,7 +56,6 @@ export function getErrorMessage(error: unknown): string {
   if (duplicateEntity === "session") return "Esta sessão já foi registrada.";
   if (duplicateEntity === "members") return "Já existe um membro com este nome.";
   if (!rawMessage) return "Ocorreu um erro inesperado. Tente novamente.";
-  if (isPortugueseMessage(rawMessage)) return rawMessage;
 
   if (normalizedMessage.includes("invalid login credentials")) {
     return "E-mail ou senha inválidos.";
@@ -85,6 +107,10 @@ export function getErrorMessage(error: unknown): string {
   if (normalizedMessage.includes("pgrst116") || normalizedMessage.includes("0 rows")) {
     return "O registro solicitado não foi encontrado.";
   }
+
+  // Erros do Postgres em inglês que citam tabelas como "vegetal" já foram
+  // traduzidos acima; só mensagens em português chegam aqui como estão.
+  if (isPortugueseMessage(rawMessage)) return rawMessage;
 
   return "Ocorreu um erro inesperado ao processar a operação. Tente novamente.";
 }
@@ -195,6 +221,7 @@ export async function logAndThrow(
 ): Promise<never> {
   await logApplicationError(error, context);
   const publicError = new Error(getErrorMessage(error));
+  publicErrors.add(publicError);
   const code = getErrorCode(error);
   const constraint = getErrorConstraint(error);
   if (code) Object.assign(publicError, { code });
