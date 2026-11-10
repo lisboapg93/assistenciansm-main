@@ -3,6 +3,7 @@ import {
   getErrorCode, getErrorConstraint, getErrorDiagnostics, getRawErrorMessage,
   getUniqueViolationEntity, sanitizeLogText, SENSITIVE_LOG_FIELD_PATTERN,
 } from "@/lib/errorDiagnostics";
+import { explainError } from "@/lib/errorExplanation";
 
 export { getUniqueViolationEntity } from "@/lib/errorDiagnostics";
 
@@ -185,9 +186,22 @@ export async function logApplicationError(
 ): Promise<void> {
   const message = sanitizeLogText(getErrorMessage(error));
   const safeContext = sanitizePayload(context.metadata ?? {}) as JsonObject;
+  const explanation = explainError({
+    code: getErrorCode(error),
+    message: getRawErrorMessage(error),
+    constraint: getErrorConstraint(error),
+    location: context.location,
+    operation: context.operation,
+    entity: context.entity,
+  });
   const metadata = {
     ...safeContext,
     ...getErrorDiagnostics(error),
+    error_category: explanation.category,
+    error_summary: explanation.summary,
+    error_cause: explanation.cause,
+    error_recommended_action: explanation.recommendedAction,
+    error_location_label: explanation.location,
   };
 
   console.error(`[${context.location}] ${message}`, metadata);

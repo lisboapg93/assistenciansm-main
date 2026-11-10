@@ -12,6 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { getErrorMessage, logAndThrow } from "@/lib/errorLogging";
+import { explainError } from "@/lib/errorExplanation";
 import { QueryError } from "@/components/QueryError";
 import { formatBrazilianDateTime } from "@/lib/date";
 
@@ -63,6 +64,19 @@ type OperationFailureLogsRpc = (
   args: { p_limit: number },
 ) => Promise<{ data: OperationFailureLog[] | null; error: { message: string } | null }>;
 
+function metadataText(metadata: JsonObject, key: string) {
+  const value = metadata[key];
+  return typeof value === "string" ? value : null;
+}
+
+function getStoredErrorMessage(message: string, code: string | null, metadata: JsonObject) {
+  return getErrorMessage({
+    message,
+    code: code || metadataText(metadata, "error_code"),
+    constraint: metadataText(metadata, "error_constraint"),
+  });
+}
+
 function formatDateTime(value: string) {
   return formatBrazilianDateTime(value, true);
 }
@@ -107,7 +121,7 @@ export default function Erros() {
         operation: error.operation,
         entity: error.entity,
         entityId: error.entity_id,
-        message: getErrorMessage(error.error_message),
+        message: getStoredErrorMessage(error.error_message, metadataText(error.metadata, "error_code"), error.metadata),
         code: typeof error.metadata.error_code === "string" ? error.metadata.error_code : null,
         location: error.error_location,
         userId: error.user_id,
@@ -121,7 +135,7 @@ export default function Erros() {
         operation: error.operation,
         entity: error.entity,
         entityId: error.entity_id,
-        message: getErrorMessage(error.error_message),
+        message: getStoredErrorMessage(error.error_message, error.error_code, error.metadata),
         code: error.error_code,
         location: error.error_location,
         userId: error.user_id,
@@ -261,9 +275,39 @@ export default function Erros() {
       <Dialog open={!!selectedError} onOpenChange={(open) => !open && setSelectedError(null)}>
         <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
           {selectedError && (
-            <>
+            (() => {
+              const calculatedExplanation = explainError({
+                code: selectedError.code || metadataText(selectedError.metadata, "error_code"),
+                message: selectedError.message,
+                originalMessage: metadataText(selectedError.metadata, "original_message"),
+                constraint: metadataText(selectedError.metadata, "error_constraint"),
+                hint: metadataText(selectedError.metadata, "error_hint"),
+                location: selectedError.location,
+                operation: selectedError.operation,
+                entity: selectedError.entity,
+              });
+              const explanation = {
+                ...calculatedExplanation,
+                category: metadataText(selectedError.metadata, "error_category") || calculatedExplanation.category,
+                summary: metadataText(selectedError.metadata, "error_summary") || calculatedExplanation.summary,
+                cause: metadataText(selectedError.metadata, "error_cause") || calculatedExplanation.cause,
+                recommendedAction: metadataText(selectedError.metadata, "error_recommended_action") || calculatedExplanation.recommendedAction,
+                location: metadataText(selectedError.metadata, "error_location_label") || calculatedExplanation.location,
+              };
+              const constraint = metadataText(selectedError.metadata, "error_constraint");
+              const hasOriginalDiagnostic = Boolean(metadataText(selectedError.metadata, "original_message"));
+
+              return <>
               <DialogHeader><DialogTitle className="flex items-center gap-2"><AlertCircle className="h-5 w-5 text-destructive" />Detalhes do erro</DialogTitle></DialogHeader>
               <div className="space-y-4 text-sm">
+                <div className="space-y-3 rounded-lg border border-destructive/30 bg-destructive/5 p-4">
+                  <p><span className="font-medium">Categoria</span><br />{explanation.category}</p>
+                  <p><span className="font-medium">O que aconteceu</span><br />{explanation.summary}</p>
+                  <p><span className="font-medium">Onde</span><br />{explanation.location}</p>
+                  <p><span className="font-medium">Causa provável</span><br />{explanation.cause}</p>
+                  <p><span className="font-medium">Como agir</span><br />{explanation.recommendedAction}</p>
+                  {!hasOriginalDiagnostic && <p className="text-muted-foreground">Causa inferida pelo código e local registrados; este erro antigo não guardou diagnóstico original.</p>}
+                </div>
                 <div className="grid gap-3 rounded-lg bg-muted/50 p-4 sm:grid-cols-2">
                   <p><span className="text-muted-foreground">Data e hora:</span><br />{formatDateTime(selectedError.occurredAt)}</p>
                   <p><span className="text-muted-foreground">Tipo:</span><br />{selectedError.source}</p>
@@ -271,12 +315,23 @@ export default function Erros() {
                   <p><span className="text-muted-foreground">Entidade:</span><br />{selectedError.entity || "—"}</p>
                   <p className="sm:col-span-2"><span className="text-muted-foreground">Local:</span><br />{selectedError.location}</p>
                   {selectedError.code && <p><span className="text-muted-foreground">Código:</span><br />{selectedError.code}</p>}
+                  {constraint && <p><span className="text-muted-foreground">Regra do banco:</span><br />{constraint}</p>}
                   {selectedError.userId && <p><span className="text-muted-foreground">Conta:</span><br />{selectedError.userId}</p>}
                 </div>
                 <div>
                   <p className="mb-1 font-medium">Mensagem</p>
                   <p className="rounded-lg border p-3 text-muted-foreground">{selectedError.message}</p>
                 </div>
+                {(metadataText(selectedError.metadata, "original_message") || metadataText(selectedError.metadata, "error_details") || metadataText(selectedError.metadata, "error_hint")) && (
+                  <div>
+                    <p className="mb-1 font-medium">Diagnóstico técnico seguro</p>
+                    <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs">{JSON.stringify({
+                      mensagem_original: metadataText(selectedError.metadata, "original_message"),
+                      detalhes: metadataText(selectedError.metadata, "error_details"),
+                      orientacao: metadataText(selectedError.metadata, "error_hint"),
+                    }, null, 2)}</pre>
+                  </div>
+                )}
                 {selectedError.inputPayload && (
                   <div>
                     <p className="mb-1 font-medium">Dados enviados</p>
@@ -288,7 +343,8 @@ export default function Erros() {
                   <pre className="overflow-x-auto rounded-lg bg-muted p-3 text-xs">{JSON.stringify(selectedError.metadata, null, 2)}</pre>
                 </div>
               </div>
-            </>
+              </>;
+            })()
           )}
         </DialogContent>
       </Dialog>
