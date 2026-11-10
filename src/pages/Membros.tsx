@@ -197,7 +197,7 @@ export default function Membros() {
     }
   };
 
-  if (isError) return <MainLayout><QueryError error={queryError} onRetry={() => void refetch()} /></MainLayout>;
+  if (isError && !members) return <MainLayout><QueryError error={queryError} onRetry={() => void refetch()} /></MainLayout>;
 
   return (
     <MainLayout>

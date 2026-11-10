@@ -23,6 +23,7 @@ interface SessionRoleAssignment {
   dirigente: string;
   segundoDirigente?: string;
   explanador?: string | null;
+  leitor?: string | null;
   mestreAssistente?: string | null;
 }
 
@@ -36,6 +37,7 @@ export function getSessionRoleEligibilityChecks(current: SessionRoleAssignment, 
     dirigente: contextChanged || changed(current.dirigente, original.dirigente),
     segundoDirigente: contextChanged || changed(current.segundoDirigente, original.segundoDirigente),
     explanador: changed(current.explanador, original.explanador),
+    leitor: changed(current.leitor, original.leitor),
     mestreAssistente: changed(current.mestreAssistente, original.mestreAssistente),
   };
 }
@@ -131,6 +133,7 @@ export function getSessionRoleValidationError({
     dirigente?: boolean;
     segundoDirigente?: boolean;
     explanador?: boolean;
+    leitor?: boolean;
     mestreAssistente?: boolean;
   };
   members: MemberRoleData[];
@@ -142,17 +145,21 @@ export function getSessionRoleValidationError({
     ["leitor", leitor],
   ] as const;
 
-  for (let index = 0; index < sessionRoles.length; index += 1) {
-    const [role, name] = sessionRoles[index];
-    if (!name?.trim()) continue;
+  const shouldCheckDuplicates = !validateEligibility || Object.values(validateEligibility).some(Boolean);
 
-    const duplicatedRole = sessionRoles
-      .slice(index + 1)
-      .find(([, otherName]) => otherName?.trim()
-        && getMemberIdentityKey(otherName) === getMemberIdentityKey(name));
+  if (shouldCheckDuplicates) {
+    for (let index = 0; index < sessionRoles.length; index += 1) {
+      const [role, name] = sessionRoles[index];
+      if (!name?.trim()) continue;
 
-    if (duplicatedRole) {
-      return `A mesma pessoa não pode ser ${role} e ${duplicatedRole[0]} na mesma sessão.`;
+      const duplicatedRole = sessionRoles
+        .slice(index + 1)
+        .find(([, otherName]) => otherName?.trim()
+          && getMemberIdentityKey(otherName) === getMemberIdentityKey(name));
+
+      if (duplicatedRole) {
+        return `A mesma pessoa não pode ser ${role} e ${duplicatedRole[0]} na mesma sessão.`;
+      }
     }
   }
 

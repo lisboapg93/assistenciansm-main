@@ -96,6 +96,15 @@ export default function Relatorios() {
   const currentStock = vegetalQuery.data?.reduce((sum, lot) => sum + Number(lot.quantity), 0) || 0;
   const movementQuery = useStockMovements();
   const { data: movements, isLoading: isLoadingMovements } = movementQuery;
+  const consumptionBySessionId = useMemo(
+    () => new Map(
+      (sessions || []).map((session) => [
+        session.id,
+        Math.abs(Number(session.consumption?.total_consumed || 0)),
+      ]),
+    ),
+    [sessions],
+  );
 
   // Prepare chart data
   const sessionsByTypeData = Object.entries(stats.sessionsByType).map(
@@ -112,16 +121,25 @@ export default function Relatorios() {
     });
 
     const counts: Record<string, { type: string; quantidade: number; litros: number }> = {};
+    const consumedSessions = new Set<string>();
     yearMovements.forEach((m) => {
       if (!counts[m.type]) {
         counts[m.type] = { type: m.type, quantidade: 0, litros: 0 };
       }
       counts[m.type].quantidade += 1;
-      counts[m.type].litros += Math.abs(m.quantity);
+      if (m.type !== "Consumo" || !m.session_id || consumedSessions.has(m.session_id)) {
+        counts[m.type].litros += m.type === "Consumo" && m.session_id
+          ? 0
+          : Math.abs(m.quantity);
+        return;
+      }
+
+      consumedSessions.add(m.session_id);
+      counts[m.type].litros += consumptionBySessionId.get(m.session_id) ?? Math.abs(m.quantity);
     });
 
     return Object.values(counts).sort((a, b) => b.litros - a.litros);
-  }, [movements, year]);
+  }, [movements, year, consumptionBySessionId]);
 
   // Monthly flows and cumulative balance for the selected year.
   const stockEvolutionData = useMemo(() => {
@@ -139,7 +157,14 @@ export default function Relatorios() {
     if (yearMovements.length === 0) return [];
 
     // Group by month
-    const monthlyData: Record<string, { month: string; entrada: number; saida: number; consumo: number }> = {};
+    const monthlyData: Record<string, {
+      month: string;
+      entrada: number;
+      saida: number;
+      consumo: number;
+      ledgerDelta: number;
+    }> = {};
+    const consumedSessions = new Set<string>();
 
     yearMovements.forEach((m) => {
       const calendarDate = brazilianIsoDate(m.date);
@@ -151,10 +176,13 @@ export default function Relatorios() {
           entrada: 0,
           saida: 0,
           consumo: 0,
+          ledgerDelta: 0,
         };
       }
 
-      if (m.type === "Entrada" || m.type === "Saldo") {
+      monthlyData[monthKey].ledgerDelta += movementEffect(m.type, Number(m.quantity));
+
+      if (m.type === "Entrada") {
         monthlyData[monthKey].entrada += Math.abs(Number(m.quantity));
       } else if (m.type === "Saída") {
         monthlyData[monthKey].saida += Math.abs(Number(m.quantity));
@@ -162,13 +190,16 @@ export default function Relatorios() {
         if (Number(m.quantity) >= 0) monthlyData[monthKey].saida += Number(m.quantity);
         else monthlyData[monthKey].entrada += Math.abs(Number(m.quantity));
       } else if (m.type === "Consumo") {
-        monthlyData[monthKey].consumo += Math.abs(Number(m.quantity));
+        if (!m.session_id || !consumedSessions.has(m.session_id)) {
+          if (m.session_id) consumedSessions.add(m.session_id);
+          monthlyData[monthKey].consumo += consumptionBySessionId.get(m.session_id || "") ?? Math.abs(Number(m.quantity));
+        }
       }
     });
 
     const evolution = Object.keys(monthlyData).sort().map((key) => {
       const data = monthlyData[key];
-      accumulatedBalance += data.entrada - data.saida - data.consumo;
+      accumulatedBalance += data.ledgerDelta;
       return {
         month: data.month,
         entrada: Number(data.entrada.toFixed(2)),
@@ -185,7 +216,7 @@ export default function Relatorios() {
     }
 
     return evolution;
-  }, [movements, year, currentStock]);
+  }, [movements, year, currentStock, consumptionBySessionId]);
 
   const mestreAssistentes = useMemo(
     () =>
@@ -215,7 +246,7 @@ export default function Relatorios() {
   }, [sessions, assistantFilter, members]);
 
   const queries = [sessionQuery, memberQuery, vegetalQuery, movementQuery];
-  const failedQuery = queries.find((query) => query.isError);
+  const failedQuery = queries.find((query) => query.isError && query.data === undefined);
   if (failedQuery) return <MainLayout><QueryError error={failedQuery.error} onRetry={() => {
     queries.forEach((query) => { void query.refetch(); });
   }} /></MainLayout>;

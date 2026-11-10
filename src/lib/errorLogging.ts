@@ -25,25 +25,15 @@ export interface ErrorLogContext {
 // segunda passada não reconhecia a frase e a trocava pelo texto genérico.
 const publicErrors = new WeakSet<Error>();
 
-const PORTUGUESE_WORDS = new Set([
-  "não", "nao", "erro", "falha", "sessão", "sessao", "sessões", "usuário", "usuario", "membro", "membros",
-  "dado", "dados", "campo", "campos", "permissão", "permissao", "estoque", "saldo", "vegetal", "fontes",
-  "insuficiente", "quantidade", "já", "ja", "existe", "existem", "existente", "registro", "conexão", "conexao",
-  "tente", "acesso", "deve", "devem", "consumo", "tipo", "grupo", "positivo", "máximo", "maximo",
-  "exige", "permitido", "diferente", "soma", "participantes", "movimentação", "movimentacao", "preencha",
-  "informe", "selecione", "lote", "lotes", "dirigente", "explanador", "leitor",
-]);
-const PORTUGUESE_STEMS = [
-  "obrigatóri", "inválid", "invalíd", "atualiz", "cadastr", "salv", "encontr", "participante",
-  "transmissã", "preench", "selecion", "excluí", "excluir", "excluíd",
-];
+const PORTUGUESE_PUBLIC_PREFIX = /^(?:não|nao|já|ja|preencha|informe|selecione|você|voce|sem permissão|quantidade|lote|fontes|uma ou mais|a mesma pessoa|o mestre|o explanador|o dirigente|o segundo|explanador e leitor|participantes|grupo de|total de|dados da|operação|a edição|a nova|sessão|esta sessão|este registro|o registro|a sessão|os dados|a quantidade|o consumo|saldo|estoque|tipo de sessão|transmissão|transmissao)(?:\s|$|[.:])/iu;
+const TECHNICAL_ENGLISH_ERROR = /\b(?:column|relation|function|table|schema|constraint|syntax|permission|operator|violates|does not exist|cannot|invalid input|error at|json object)\b/i;
 
-// \b do JS só conhece ASCII, então palavras acentuadas e radicais ("inválid"
-// de "inválidos") nunca casavam. Compara palavra por palavra, com Unicode.
+// Só repassa mensagens públicas que começam como texto de domínio em português.
+// Palavras isoladas como "tipo" e "consumo" também aparecem em erros técnicos
+// do Postgres e não devem chegar ao usuário.
 function isPortugueseMessage(message: string): boolean {
-  const words = message.toLocaleLowerCase("pt-BR").match(/[\p{L}\p{N}_]+/gu) ?? [];
-  return words.some((word) =>
-    PORTUGUESE_WORDS.has(word) || PORTUGUESE_STEMS.some((stem) => word.startsWith(stem)));
+  const normalized = message.trim().toLocaleLowerCase("pt-BR");
+  return PORTUGUESE_PUBLIC_PREFIX.test(normalized) && !TECHNICAL_ENGLISH_ERROR.test(message);
 }
 
 export function getErrorMessage(error: unknown): string {
@@ -51,11 +41,19 @@ export function getErrorMessage(error: unknown): string {
 
   const rawMessage = getRawErrorMessage(error).trim();
   const normalizedMessage = rawMessage.toLocaleLowerCase("en-US");
+  const errorCode = getErrorCode(error)?.toUpperCase();
 
   const duplicateEntity = getUniqueViolationEntity(error);
   if (duplicateEntity === "session") return "Esta sessão já foi registrada.";
   if (duplicateEntity === "members") return "Já existe um membro com este nome.";
   if (!rawMessage) return "Ocorreu um erro inesperado. Tente novamente.";
+
+  if (errorCode === "PGRST202") {
+    return "Uma função necessária do sistema não está disponível no momento.";
+  }
+  if (errorCode === "PGRST116") {
+    return "O registro solicitado não foi encontrado.";
+  }
 
   if (normalizedMessage.includes("invalid login credentials")) {
     return "E-mail ou senha inválidos.";

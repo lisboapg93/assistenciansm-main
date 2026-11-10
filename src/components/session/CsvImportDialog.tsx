@@ -47,6 +47,8 @@ interface ParsedSession {
   rowNumber: number;
   date: string;
   type: string;
+  is_transmissao_assistencia: boolean;
+  segundo_dirigente?: string;
   dirigente: string;
   mestre_assistente: string;
   registered_by_name: string;
@@ -117,6 +119,8 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
     const exampleRow = [
       "2025-01-15",
       "Primeira Escala",
+      "false",
+      "",
       "João Silva",
       "Maria Santos",
       "Carlos Souza",
@@ -136,7 +140,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       "ID_DO_LOTE:2,5",
     ].join(delimiter);
 
-    const csvContent = `${headers}\n${exampleRow}`;
+    const csvContent = `\uFEFF${headers}\n${exampleRow}`;
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -147,8 +151,8 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
 
   const parseBoolean = (value: string): boolean | null => {
     const normalized = value?.toLowerCase().trim();
-    if (!normalized || ["false", "não", "nao", "0", "n"].includes(normalized)) return false;
-    if (["true", "sim", "1", "s"].includes(normalized)) return true;
+    if (!normalized || ["false", "não", "nao", "falso", "0", "n"].includes(normalized)) return false;
+    if (["true", "sim", "verdadeiro", "1", "s"].includes(normalized)) return true;
     return null;
   };
 
@@ -169,8 +173,8 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
     let year: number;
     let month: number;
     let day: number;
-    const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
-    const brazilian = /^(\d{2})[/-](\d{2})[/-](\d{4})$/.exec(trimmed);
+    const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(trimmed);
+    const brazilian = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(trimmed);
     if (iso) {
       year = Number(iso[1]); month = Number(iso[2]); day = Number(iso[3]);
     } else if (brazilian) {
@@ -191,9 +195,12 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       errors.push("Data inválida");
     }
 
-    const type = row.tipo?.trim() || "";
-    if (!SESSION_TYPES.some((sessionType) => sessionType === type)) {
-      errors.push(`Tipo de sessão inválido: "${type}"`);
+    const importedType = row.tipo?.trim() || "";
+    const type = SESSION_TYPES.find((sessionType) =>
+      sessionType.localeCompare(importedType, "pt-BR", { sensitivity: "base" }) === 0,
+    ) || "";
+    if (!type) {
+      errors.push(`Tipo de sessão inválido: "${importedType}"`);
     }
 
     const dirigente = row.dirigente?.trim() || "";
@@ -213,6 +220,13 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
 
     const explanador = row.explanador?.trim() || "";
     const leitor = row.leitor?.trim() || "";
+    const isTransmissaoAssistencia = parseBoolean(row.transmissao_assistencia);
+    const segundoDirigente = row.segundo_dirigente?.trim() || "";
+    const typeAllowsTransmissao = ["Primeira Escala", "Segunda Escala", "Extra"].includes(type);
+    if (isTransmissaoAssistencia === null) errors.push("transmissao_assistencia: use sim ou não");
+    if (isTransmissaoAssistencia && (!typeAllowsTransmissao || !segundoDirigente)) {
+      errors.push("A transmissão exige tipo permitido e segundo dirigente");
+    }
     if (TYPES_WITH_EXPLANADOR_LEITOR.includes(type) && (!explanador || !leitor)) {
       errors.push("Explanador e Leitor são obrigatórios para este tipo de sessão");
     }
@@ -221,9 +235,11 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       const roleError = getSessionRoleValidationError({
         type,
         dirigente,
+        segundoDirigente: isTransmissaoAssistencia ? segundoDirigente : undefined,
         mestreAssistente,
         explanador: explanador || undefined,
         leitor: leitor || undefined,
+        onlyQuadroDeMestre: isTransmissaoAssistencia === true,
         members: members || [],
       });
       if (roleError) errors.push(roleError);
@@ -293,6 +309,8 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
       rowNumber: 0,
       date: date || "",
       type,
+      is_transmissao_assistencia: isTransmissaoAssistencia ?? false,
+      segundo_dirigente: segundoDirigente || undefined,
       dirigente,
       mestre_assistente: mestreAssistente,
       registered_by_name: registeredByName,
@@ -464,6 +482,13 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
 
         const totalParticipants = Object.values(participants).reduce((a, b) => a + b, 0);
 
+        const transmissaoInfo = session.is_transmissao_assistencia
+          ? `[Transmissão da Assistência - 2º Dirigente: ${session.segundo_dirigente}]`
+          : "";
+        const observation = transmissaoInfo
+          ? session.observation ? `${transmissaoInfo}\n${session.observation}` : transmissaoInfo
+          : session.observation || null;
+
         await registerSessionWithConsumption({
           date: session.date,
           type: session.type,
@@ -478,13 +503,11 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
           is_united: session.is_united,
           has_photo: session.has_photo,
           has_audio: session.has_audio,
-          observation: session.observation || null,
+          observation,
         }, session.sources, [
           session.dirigente,
           session.mestre_assistente,
-          session.registered_by_name,
           session.explanador,
-          session.leitor,
         ].filter((name): name is string => Boolean(name)));
         successCount++;
       } catch (err) {
@@ -546,6 +569,16 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
         <div className="flex-1 overflow-auto">
           {step === "upload" && (
             <div className="space-y-6 py-4">
+              {parseInfo?.parseErrors?.length ? (
+                <Alert variant="destructive">
+                  <AlertDescription className="text-sm">
+                    <p className="font-medium">Não foi possível ler o CSV:</p>
+                    <ul className="mt-1 list-disc pl-5">
+                      {parseInfo.parseErrors.map((message, index) => <li key={index}>{message}</li>)}
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               <Tabs
                 value={uploadTab}
                 onValueChange={(value) => {
@@ -667,6 +700,9 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
                       <TableHead>Data</TableHead>
                       <TableHead>Tipo</TableHead>
                       <TableHead>Dirigente</TableHead>
+                      <TableHead>Registrado por</TableHead>
+                      <TableHead>Leitor</TableHead>
+                      <TableHead>Transmissão</TableHead>
                       <TableHead>Participantes</TableHead>
                       <TableHead>Consumo</TableHead>
                       <TableHead>Lotes</TableHead>
@@ -692,6 +728,9 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
                           </Badge>
                         </TableCell>
                         <TableCell className="max-w-[120px] truncate">{session.dirigente || "-"}</TableCell>
+                        <TableCell className="max-w-[120px] truncate">{session.registered_by_name || "-"}</TableCell>
+                        <TableCell className="max-w-[120px] truncate">{session.leitor || "-"}</TableCell>
+                        <TableCell>{session.is_transmissao_assistencia ? "Sim" : "Não"}</TableCell>
                         <TableCell>
                           {session.mestres + session.conselheiros + session.instrutivo + session.socios + session.visitantes + session.jovens}
                         </TableCell>
@@ -752,7 +791,7 @@ export function CsvImportDialog({ open, onOpenChange, onSuccess }: CsvImportDial
           )}
           {step === "preview" && (
             <>
-              <Button variant="outline" onClick={() => setStep("upload")}>
+              <Button variant="outline" onClick={() => setStep("upload")} disabled={isImporting}>
                 Voltar
               </Button>
               <Button

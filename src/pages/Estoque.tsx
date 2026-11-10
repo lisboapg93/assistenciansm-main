@@ -85,12 +85,17 @@ export default function Estoque() {
   const monthsRemaining = isAssistant
     ? Number(assistantForecast?.months_remaining || 0)
     : stats.monthsRemaining;
+  const hasSessionHistory = isAssistant || Boolean(sessions?.length);
   const forecastLabel = isAssistant && !assistantForecast
     ? forecastError ? "Indisponível" : "Carregando..."
-    : !isAssistant && sessionQuery.isLoading ? "Carregando..." : `~${Math.floor(sessionsRemaining)} sessões`;
+    : !isAssistant && sessionQuery.isLoading ? "Carregando..."
+      : !hasSessionHistory ? "Sem histórico"
+        : `~${Math.floor(sessionsRemaining)} sessões`;
   const durationLabel = isAssistant && !assistantForecast
     ? forecastError ? "Indisponível" : "Carregando..."
-    : !isAssistant && sessionQuery.isLoading ? "Carregando..." : `~${monthsRemaining.toFixed(1)} meses`;
+    : !isAssistant && sessionQuery.isLoading ? "Carregando..."
+      : !hasSessionHistory ? "Sem histórico"
+        : `~${monthsRemaining.toFixed(1)} meses`;
 
   const filteredVegetais = vegetais?.filter(
     (v) =>
@@ -99,7 +104,7 @@ export default function Estoque() {
   );
 
   const queries = [vegetalQuery, stockQuery, memberQuery, ...(!isAssistant ? [sessionQuery] : [])];
-  const failedQuery = queries.find((query) => query.isError);
+  const failedQuery = queries.find((query) => query.isError && query.data === undefined);
   if (failedQuery) return <MainLayout><QueryError error={failedQuery.error} onRetry={() => {
     queries.forEach((query) => { void query.refetch(); });
   }} /></MainLayout>;
@@ -172,6 +177,7 @@ export default function Estoque() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
               placeholder="Buscar por nome ou mestre..."
+              aria-label="Buscar por nome ou mestre"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-10"
@@ -260,6 +266,7 @@ export default function Estoque() {
                           <Button
                             variant="ghost"
                             size="icon"
+                            aria-label={`Ver detalhes de ${vegetal.name}`}
                             onClick={(e) => {
                               e.stopPropagation();
                               setSelectedVegetal(vegetal);

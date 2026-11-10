@@ -1,6 +1,8 @@
 export const CSV_TEMPLATE_HEADERS = [
   "data",
   "tipo",
+  "transmissao_assistencia",
+  "segundo_dirigente",
   "dirigente",
   "mestre_assistente",
   "registrado_por",
@@ -20,9 +22,15 @@ export const CSV_TEMPLATE_HEADERS = [
   "fontes_vegetal",
 ] as const;
 
+const LEGACY_POSITIONAL_HEADERS = CSV_TEMPLATE_HEADERS.filter(
+  (column) => column !== "transmissao_assistencia" && column !== "segundo_dirigente",
+);
+
 const HEADER_ALIASES: Record<(typeof CSV_TEMPLATE_HEADERS)[number], string[]> = {
   data: ["data", "date", "dt"],
   tipo: ["tipo", "type", "tipo_de_sessao", "tipo_sessao", "sessao"],
+  transmissao_assistencia: ["transmissao_assistencia", "transmissao", "sessao_transmissao", "is_transmissao_assistencia"],
+  segundo_dirigente: ["segundo_dirigente", "2_dirigente", "2o_dirigente", "segundo_dirigente_nome"],
   dirigente: ["dirigente", "dirigente_nome"],
   mestre_assistente: ["mestre_assistente", "mestre_assistente_nome", "assistente", "m_assistente"],
   registrado_por: ["registrado_por", "registered_by_name", "cadastrado_por", "responsavel_registro"],
@@ -96,9 +104,15 @@ export function mapSessionCsvRows(rows: string[][]) {
   const dataRows = hasHeader ? rows.slice(1) : rows;
   const preparedRows = dataRows.map((row, rowIndex) => {
     const values: Record<string, string> = {};
-    CSV_TEMPLATE_HEADERS.forEach((column, defaultIndex) => {
+    const positionalColumns = !hasHeader && row.length <= LEGACY_POSITIONAL_HEADERS.length
+      ? LEGACY_POSITIONAL_HEADERS
+      : CSV_TEMPLATE_HEADERS;
+    positionalColumns.forEach((column, defaultIndex) => {
       const index = hasHeader ? indexByColumn.get(column) : defaultIndex;
       values[column] = index !== undefined ? (row[index] ?? "") : "";
+    });
+    CSV_TEMPLATE_HEADERS.forEach((column) => {
+      values[column] ??= "";
     });
     return { values, rowNumber: rowIndex + (hasHeader ? 2 : 1) };
   });

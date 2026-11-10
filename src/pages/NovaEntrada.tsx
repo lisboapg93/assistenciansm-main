@@ -73,17 +73,13 @@ export default function NovaEntrada() {
 
   const memberNames = members?.map(getMemberDisplayName) || [];
 
-  if (memberQuery.isError && !members) {
-    return <MainLayout><QueryError error={memberQuery.error} onRetry={() => void memberQuery.refetch()} /></MainLayout>;
-  }
-
   return (
     <MainLayout>
       <div className="max-w-2xl mx-auto space-y-6 animate-fade-in">
         {memberQuery.isError && <QueryError error={memberQuery.error} onRetry={() => void memberQuery.refetch()} />}
         {/* Header */}
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} aria-label="Voltar">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>

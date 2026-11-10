@@ -73,7 +73,7 @@ export default function Erros() {
   const [sourceFilter, setSourceFilter] = useState<"all" | ErrorEntry["source"]>("all");
   const [selectedError, setSelectedError] = useState<ErrorEntry | null>(null);
 
-  const { data: errors = [], isLoading, isFetching, isError, error: queryError, refetch } = useQuery({
+  const { data: errors, isLoading, isFetching, isError, error: queryError, refetch } = useQuery({
     queryKey: ["error-logs"],
     queryFn: async (): Promise<ErrorEntry[]> => {
       const operationFailureRpc = supabase.rpc.bind(supabase) as unknown as OperationFailureLogsRpc;
@@ -137,7 +137,7 @@ export default function Erros() {
 
   const filteredErrors = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase("pt-BR");
-    return errors.filter((error) => {
+    return (errors ?? []).filter((error) => {
       if (sourceFilter !== "all" && error.source !== sourceFilter) return false;
       if (!normalizedSearch) return true;
       return [error.message, error.location, error.operation, error.entity, error.code]
@@ -188,7 +188,7 @@ export default function Erros() {
 
         <Card>
           <CardContent className="p-0">
-            {isError ? <QueryError error={queryError} onRetry={() => void refetch()} /> : isLoading ? (
+            {isError && !errors ? <QueryError error={queryError} onRetry={() => void refetch()} /> : isLoading ? (
               <div className="space-y-3 p-6">{[...Array(6)].map((_, index) => <Skeleton key={index} className="h-16 w-full" />)}</div>
             ) : filteredErrors.length === 0 ? (
               <div className="p-12 text-center">

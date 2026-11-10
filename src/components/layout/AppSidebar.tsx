@@ -81,6 +81,7 @@ export function AppSidebar() {
           variant="ghost"
           size="icon"
           onClick={() => setIsMobileOpen(!isMobileOpen)}
+          aria-label={isMobileOpen ? "Fechar menu" : "Abrir menu"}
         >
           {isMobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </Button>
@@ -141,7 +142,7 @@ export function AppSidebar() {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 py-4 px-2 space-y-1">
+          <nav className="min-h-0 flex-1 overflow-y-auto py-4 px-2 space-y-1">
             {visibleNavItems.map((item) => {
               const isActive = location.pathname === item.path;
               return (
@@ -205,6 +206,7 @@ export function AppSidebar() {
                 isCollapsed ? "mx-auto w-10 justify-center" : "w-full justify-start"
               )}
               onClick={handleLogout}
+              aria-label="Sair da conta"
             >
               <LogOut className="h-4 w-4" />
               {!isCollapsed && <span className="ml-2">Sair</span>}

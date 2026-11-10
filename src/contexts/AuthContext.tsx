@@ -34,6 +34,17 @@ function removePersistedAuthSession() {
   localStorage.removeItem(`${AUTH_STORAGE_KEY}-user`);
 }
 
+function isPermanentRoleError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { status?: unknown; code?: unknown; message?: unknown };
+  const status = Number(record.status);
+  if (status === 401 || status === 403) return true;
+
+  const code = String(record.code || "").toUpperCase();
+  const message = String(record.message || "").toLowerCase();
+  return code === "PGRST301" || /\b(jwt|token)\b.*\b(expir|inválid|invalid|malformed)\b/.test(message);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
@@ -107,12 +118,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     let missingProfile = false;
+    const timeoutController = new AbortController();
+    const timeoutId = window.setTimeout(() => timeoutController.abort(), 10000);
     try {
       const { data, error } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", userId)
-        .abortSignal(AbortSignal.timeout(10000));
+        .abortSignal(timeoutController.signal);
 
       if (error) {
         throw error;
@@ -137,10 +150,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Falha transitória (rede, timeout) ao revalidar não pode expulsar quem já
       // tem papel conhecido: a tela de erro desmontaria o formulário em edição.
       // Só a ausência confirmada de perfil remove o acesso.
-      if (userRoleRef.current && !missingProfile) return;
+      if (userRoleRef.current && !missingProfile && !isPermanentRoleError(err)) return;
+      queryClient.clear();
       userRoleRef.current = null;
       setUserRole(null);
       setAuthError(getErrorMessage(err));
+    } finally {
+      window.clearTimeout(timeoutId);
     }
   }, [queryClient]);
 

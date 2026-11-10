@@ -21,7 +21,18 @@ const Erros = lazy(() => import("./pages/Erros"));
 const Atividades = lazy(() => import("./pages/Atividades"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+    mutations: {
+      retry: 0,
+    },
+  },
+});
 
 function ProtectedRoute({ 
   children, 

@@ -69,7 +69,7 @@ export default function Dashboard() {
   }, [members, sessions]);
 
   const queries = [sessionQuery, memberQuery, vegetalQuery];
-  const failedQuery = queries.find((query) => query.isError);
+  const failedQuery = queries.find((query) => query.isError && query.data === undefined);
   if (failedQuery) return <MainLayout><QueryError error={failedQuery.error} onRetry={() => {
     queries.forEach((query) => { void query.refetch(); });
   }} /></MainLayout>;

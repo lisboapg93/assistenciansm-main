@@ -148,6 +148,7 @@ export default function EditarSessao() {
     dirigente: basicData.dirigente,
     segundoDirigente: basicData.segundo_dirigente,
     explanador: nextExplanador,
+    leitor: nextLeitor,
     mestreAssistente: basicData.mestre_assistente,
   }, {
     type: session?.type || "",
@@ -155,6 +156,7 @@ export default function EditarSessao() {
     dirigente: session?.dirigente || "",
     segundoDirigente: originalSegundoDirigente,
     explanador: session?.explanador,
+    leitor: session?.leitor,
     mestreAssistente: session?.mestre_assistente,
   });
   const memberNames = members?.map(getMemberDisplayName) || [];

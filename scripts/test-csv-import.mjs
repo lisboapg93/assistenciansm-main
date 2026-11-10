@@ -63,6 +63,14 @@ assert.equal(normalized.error, undefined);
 assert.equal(normalized.rows[0].values.observacao, "Sessão");
 assert.equal(mapSessionCsvRows([CSV_TEMPLATE_HEADERS]).rows.length, 0);
 
+const transmissao = mapSessionCsvRows([
+  ["Data", "Tipo", "Transmissão", "Segundo Dirigente", "Dirigente", "Mestre Assistente", "Registrado por", "Consumo", "Fontes"],
+  ["1/2/2026", "primeira escala", "VERDADEIRO", "Maria", "João", "Carlos", "Responsável", "1,5", "lote:1,5"],
+]);
+assert.equal(transmissao.error, undefined);
+assert.equal(transmissao.rows[0].values.transmissao_assistencia, "VERDADEIRO");
+assert.equal(transmissao.rows[0].values.segundo_dirigente, "Maria");
+
 // Excel pt-BR salva em Windows-1252; ler como UTF-8 gerava "Jo�o".
 const toBuffer = (bytes) => new Uint8Array(bytes).buffer;
 const ansi = decodeCsvBuffer(toBuffer([0x4a, 0x6f, 0xe3, 0x6f, 0x3b, 0x4e, 0xe3, 0x6f]));

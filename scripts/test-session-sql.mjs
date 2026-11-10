@@ -2,6 +2,7 @@
 // PG_BINDIR=/opt/homebrew/opt/postgresql@17/bin node scripts/test-session-sql.mjs
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -225,6 +226,73 @@ async function verify() {
     WHERE vegetal_id IN (${quote(first)},${quote(second)},${quote(balance)}) AND type='Ajuste';`, '-10.00,-5.00,9.00');
   await concurrentReversal(true);
   console.log('Passou: estorno simples/união, sinais do ledger e concorrência sem saldo negativo');
+
+  // Antes da migration: observação longa estoura o índice e sessão legada trava.
+  const longObservation = randomBytes(2000).toString('hex');
+  error(registration(session({ observation: longObservation }), [{ vegetal_id: lot(), amount_available: 100 }]), /index row size/);
+  const legacy = register(session());
+  sql(`SET session_replication_role=replica;
+    UPDATE public.session SET mestre_assistente=NULL, total_participants=0 WHERE id=${quote(legacy)};`);
+  error(metadata(legacy, { observation: 'Correção posterior' }), /Preencha os campos obrigatórios|Total de participantes/);
+
+  const legacyMigration = path.join(root, 'supabase/migrations/20261107120000_allow_legacy_session_edits_and_long_observation.sql');
+  sql(`BEGIN;\n${readFileSync(legacyMigration, 'utf8')}\nCOMMIT;`);
+
+  const longData = session({ observation: longObservation });
+  register(longData);
+  error(registration(longData, [{ vegetal_id: lot(), amount_available: 100 }]), /session_no_duplicate_logical_record_idx/);
+  const longId = sql(`SELECT id FROM public.session WHERE observation=${quote(longObservation)};`);
+  sql(metadata(longId, { observation: `${longObservation}!` }));
+  console.log('Passou: observação longa registra, edita e continua barrando duplicidade');
+
+  sql(metadata(legacy, { observation: 'Correção posterior' }));
+  check(`SELECT observation FROM public.session WHERE id=${quote(legacy)};`, 'Correção posterior');
+  error(metadata(legacy, { participants: { ...participants, mestres: 0 }, total_participants: 0 }), /Total de participantes inválido/);
+  error(metadata(legacy, { type: 'Tipo Inexistente' }), /Tipo de sessão inválido/);
+  error(metadata(register(session()), { mestre_assistente: '' }), /Preencha os campos obrigatórios/);
+  error(registration(session({ participants: { ...participants, mestres: 0 }, total_participants: 0 }),
+    [{ vegetal_id: lot(), amount_available: 100 }]), /Total de participantes inválido/);
+  console.log('Passou: sessão legada edita só o que não muda; campos alterados e inserções validam tudo');
+}
+
+function verifyRecentHardening() {
+  for (const file of [
+    '20261107120000_allow_legacy_session_edits_and_long_observation.sql',
+    '20261107130000_harden_person_names_and_inventory.sql',
+  ]) {
+    sql(`BEGIN;\n${readFileSync(path.join(root, 'supabase/migrations', file), 'utf8')}\nCOMMIT;`);
+  }
+
+  sql(`ALTER TABLE public.session DISABLE TRIGGER validate_session_data_before_write;
+    INSERT INTO public.session(date,type,dirigente,mestre_assistente,registered_by_name,participants,total_participants)
+    VALUES ('2028-01-01','Extra','M. Alfa',NULL,'Operador',${json(participants)},1);
+    ALTER TABLE public.session ENABLE TRIGGER validate_session_data_before_write;`);
+  const legacyId = sql(`SELECT id FROM public.session WHERE date='2028-01-01'::date;`);
+  check(`UPDATE public.session SET observation=repeat('x',6000) WHERE id=${quote(legacyId)}
+    RETURNING length(observation);`, 6000);
+  error(`UPDATE public.session SET type='Quadro de Mestres' WHERE id=${quote(legacyId)};`,
+    /Preencha os campos obrigatórios da sessão/);
+
+  sql(`INSERT INTO public.members(name) VALUES ('Dirigente sem grau');`);
+  const source = lot(10);
+  error(registration(session({ dirigente: 'Dirigente sem grau' }), [{ vegetal_id: source, amount_available: 10 }]),
+    /dirigente deve ser um membro elegível/);
+  error(registration(session({ type: 'Quadro de Mestres', dirigente: 'Dirigente sem grau' }),
+    [{ vegetal_id: source, amount_available: 10 }]), /dirigente deve ser um membro elegível/);
+
+  check(`SELECT public.normalize_person_name(${quote('\t JoA\u0303O\r\n DA\u00a0SILVA ')})`, 'João Da Silva');
+  check(`SELECT public.normalize_person_name(E'\\t\\r\\n') IS NULL`, 't');
+  error(`INSERT INTO public.members(name) VALUES (E'\\t');`, /Informe o nome do membro/);
+  error(`INSERT INTO public.session(date,type,dirigente,mestre_assistente,registered_by_name,participants,total_participants)
+    VALUES ('2028-01-02','Extra','M. Alfa','M. Auxiliar',E'\\t',${json(participants)},1);`,
+  /Informe quem registrou a sessão/);
+
+  error(`INSERT INTO public.vegetal(name,quantity,initial_quantity,envase_date,master)
+    VALUES ('Negativo',-1,0,'2028-01-01','M. Alfa');`, /vegetal_quantity_nonnegative/);
+  error(`INSERT INTO public.stock_movement(type,quantity) VALUES ('Consumo',-1);`,
+    /stock_movement_nonnegative_except_adjustment/);
+  sql(`INSERT INTO public.stock_movement(type,quantity) VALUES ('Ajuste',-1);`);
+  console.log('Passou: edição legada, observação longa, grau, nomes e estoque endurecidos');
 }
 
 let started = false;
@@ -237,6 +305,7 @@ try {
   if (!process.argv.includes('--reproduce-only')) {
     await verify();
     runUnicodeTests({ sql });
+    verifyRecentHardening();
   }
 } finally {
   if (started) execFileSync(path.join(bin, 'pg_ctl'), ['-D', data, '-m', 'immediate', 'stop'], { stdio: 'pipe' });

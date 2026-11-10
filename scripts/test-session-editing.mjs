@@ -54,3 +54,15 @@ test("troca de contexto preserva funções históricas com grau independente do 
   assert.equal(checks.explanador, false);
   assert.equal(checks.mestreAssistente, false);
 });
+
+test("sessão legada com a mesma pessoa em duas funções continua editável", () => {
+  const legacy = { ...original, leitor: "Ana" };
+  const check = (current) => getSessionRoleValidationError({
+    ...current, members,
+    validateEligibility: getSessionRoleEligibilityChecks(current, legacy),
+  });
+  assert.equal(check(legacy), null);
+  assert.equal(check({ ...legacy, observation: "Texto novo" }), null);
+  assert.match(check({ ...legacy, explanador: "Ana" }), /mesma pessoa/);
+  assert.match(check({ ...legacy, leitor: "C. Maria" }), /mesma pessoa/);
+});

@@ -138,7 +138,27 @@ export default function NovaSessao() {
 
   const totalParticipants = Object.values(participants).reduce((a, b) => a + b, 0);
   const participantsValid = areParticipantsValid(participants);
-  const totalAvailable = sumStockQuantities(consumptionData.sources.map((source) => source.amount_available));
+  const vegetalById = new Map((vegetais || []).map((vegetal) => [vegetal.id, vegetal]));
+  const sourceQuantities = consumptionData.sources.map((source) => {
+    const vegetal = vegetalById.get(source.vegetal_id);
+    const currentQuantity = vegetal ? Number(vegetal.quantity) : 0;
+    return { source, currentQuantity };
+  });
+  const hasSourceQuantityMismatch = sourceQuantities.some(({ source, currentQuantity }) =>
+    source.amount_available > currentQuantity,
+  );
+  const totalAvailable = sumStockQuantities(sourceQuantities.map(({ source, currentQuantity }) =>
+    Math.min(source.amount_available, currentQuantity),
+  ));
+  const selectableVegetais = [
+    ...(vegetais || []).filter((vegetal) =>
+      Number(vegetal.quantity) > 0 || consumptionData.sources.some((source) => source.vegetal_id === vegetal.id),
+    ),
+    ...consumptionData.sources
+      .filter((source) => !vegetalById.has(source.vegetal_id))
+      .map((source) => ({ id: source.vegetal_id, name: source.vegetal_name, quantity: 0 })),
+  ];
+  const isNonBlank = (value: string) => value.trim().length > 0;
 
   const showExplanadorLeitor = TYPES_WITH_EXPLANADOR_LEITOR.includes(basicData.type);
   const showTransmissaoOption = ['Primeira Escala', 'Segunda Escala', 'Extra'].includes(basicData.type);
@@ -181,17 +201,17 @@ export default function NovaSessao() {
     if (submittingRef.current) return;
     const totalConsumed = Number(consumptionData.total_consumed);
     
-    if (!basicData.date || !basicData.type || !basicData.dirigente || !basicData.mestre_assistente || !basicData.registered_by_name.trim()) {
+    if (!basicData.date || !basicData.type || !isNonBlank(basicData.dirigente) || !isNonBlank(basicData.mestre_assistente) || !isNonBlank(basicData.registered_by_name)) {
       toast.error("Preencha os campos obrigatórios");
       return;
     }
 
-    if (showExplanadorLeitor && (!basicData.explanador || !basicData.leitor)) {
+    if (showExplanadorLeitor && (!isNonBlank(basicData.explanador) || !isNonBlank(basicData.leitor))) {
       toast.error("Explanador e Leitor são obrigatórios para este tipo de sessão");
       return;
     }
 
-    if (basicData.is_transmissao_assistencia && (!showTransmissaoOption || !basicData.segundo_dirigente.trim())) {
+    if (basicData.is_transmissao_assistencia && (!showTransmissaoOption || !isNonBlank(basicData.segundo_dirigente))) {
       toast.error("A transmissão exige um tipo permitido e o segundo dirigente.");
       return;
     }
@@ -203,11 +223,11 @@ export default function NovaSessao() {
 
     const roleValidationError = getSessionRoleValidationError({
       type: basicData.type,
-      dirigente: basicData.dirigente,
-      segundoDirigente: basicData.is_transmissao_assistencia ? basicData.segundo_dirigente : undefined,
-      explanador: showExplanadorLeitor ? basicData.explanador : undefined,
-      leitor: showExplanadorLeitor ? basicData.leitor : undefined,
-      mestreAssistente: basicData.mestre_assistente,
+      dirigente: basicData.dirigente.trim(),
+      segundoDirigente: basicData.is_transmissao_assistencia ? basicData.segundo_dirigente.trim() : undefined,
+      explanador: showExplanadorLeitor ? basicData.explanador.trim() : undefined,
+      leitor: showExplanadorLeitor ? basicData.leitor.trim() : undefined,
+      mestreAssistente: basicData.mestre_assistente.trim(),
       onlyQuadroDeMestre: basicData.is_transmissao_assistencia,
       members: members || [],
     });
@@ -231,6 +251,11 @@ export default function NovaSessao() {
       return;
     }
 
+    if (hasSourceQuantityMismatch) {
+      toast.error("Um lote mudou de saldo. Desmarque e selecione-o novamente antes de salvar.");
+      return;
+    }
+
     if (!isStockQuantity(totalConsumed)) {
       toast.error("Informe consumo positivo com no máximo 2 casas decimais.");
       return;
@@ -249,14 +274,12 @@ export default function NovaSessao() {
         basicData.segundo_dirigente,
         basicData.mestre_assistente,
         basicData.explanador,
-        basicData.leitor,
-        basicData.registered_by_name,
-      ].filter(Boolean);
+      ].map((name) => name.trim()).filter(Boolean);
 
       // Build observation with transmissão info
       let fullObservation = contentData.observation || "";
       if (basicData.is_transmissao_assistencia) {
-        const transmissaoInfo = `[Transmissão da Assistência - 2º Dirigente: ${basicData.segundo_dirigente}]`;
+        const transmissaoInfo = `[Transmissão da Assistência - 2º Dirigente: ${basicData.segundo_dirigente.trim()}]`;
         fullObservation = fullObservation 
           ? `${transmissaoInfo}\n${fullObservation}` 
           : transmissaoInfo;
@@ -265,10 +288,10 @@ export default function NovaSessao() {
       const sessionData = {
         date: basicData.date,
         type: basicData.type,
-        dirigente: basicData.dirigente,
-        explanador: showExplanadorLeitor ? basicData.explanador : null,
-        leitor: showExplanadorLeitor ? basicData.leitor : null,
-        mestre_assistente: basicData.mestre_assistente || null,
+        dirigente: basicData.dirigente.trim(),
+        explanador: showExplanadorLeitor ? basicData.explanador.trim() : null,
+        leitor: showExplanadorLeitor ? basicData.leitor.trim() : null,
+        mestre_assistente: basicData.mestre_assistente.trim() || null,
         registered_by_name: basicData.registered_by_name.trim(),
         has_photo: contentData.has_photo,
         has_audio: contentData.has_audio,
@@ -308,38 +331,49 @@ export default function NovaSessao() {
     }
   };
 
-  const canProceed = () => {
+  const getStepValidationMessage = () => {
     switch (currentStep) {
       case 1:
-        if (!basicData.type || !basicData.dirigente || !basicData.date || !basicData.mestre_assistente || !basicData.registered_by_name.trim()) return false;
-        if (showExplanadorLeitor && (!basicData.explanador || !basicData.leitor)) return false;
-        if (basicData.is_transmissao_assistencia && !basicData.segundo_dirigente) return false;
-        return !getSessionRoleValidationError({
+        if (!basicData.type || !basicData.date || !isNonBlank(basicData.dirigente) || !isNonBlank(basicData.mestre_assistente) || !isNonBlank(basicData.registered_by_name)) {
+          return "Preencha tipo, data, dirigente, mestre assistente e quem registrou.";
+        }
+        if (showExplanadorLeitor && (!isNonBlank(basicData.explanador) || !isNonBlank(basicData.leitor))) {
+          return "Este tipo exige explanador e leitor.";
+        }
+        if (basicData.is_transmissao_assistencia && !isNonBlank(basicData.segundo_dirigente)) {
+          return "A transmissão exige segundo dirigente.";
+        }
+        return getSessionRoleValidationError({
           type: basicData.type,
-          dirigente: basicData.dirigente,
-          segundoDirigente: basicData.is_transmissao_assistencia ? basicData.segundo_dirigente : undefined,
-          explanador: showExplanadorLeitor ? basicData.explanador : undefined,
-          leitor: showExplanadorLeitor ? basicData.leitor : undefined,
-          mestreAssistente: basicData.mestre_assistente,
+          dirigente: basicData.dirigente.trim(),
+          segundoDirigente: basicData.is_transmissao_assistencia ? basicData.segundo_dirigente.trim() : undefined,
+          explanador: showExplanadorLeitor ? basicData.explanador.trim() : undefined,
+          leitor: showExplanadorLeitor ? basicData.leitor.trim() : undefined,
+          mestreAssistente: basicData.mestre_assistente.trim(),
           onlyQuadroDeMestre: basicData.is_transmissao_assistencia,
           members: members || [],
         });
       case 2:
-        return true;
+        return null;
       case 3:
-        return participantsValid;
+        return participantsValid ? null : "Informe ao menos um participante e use quantidades inteiras não negativas.";
       case 4:
-        return (
-          consumptionData.sources.length > 0 &&
-          (consumptionData.is_united || consumptionData.sources.length === 1) &&
-          consumptionData.sources.every((source) => isStockQuantity(source.amount_available)) &&
-          isStockQuantity(Number(consumptionData.total_consumed)) &&
-          Number(consumptionData.total_consumed) <= totalAvailable
-        );
+        if (consumptionData.sources.length === 0) return "Selecione ao menos um lote de vegetal.";
+        if (!consumptionData.is_united && consumptionData.sources.length !== 1) return "Sem união, selecione apenas um lote.";
+        if (hasSourceQuantityMismatch) return "Um lote mudou de saldo. Desmarque e selecione-o novamente.";
+        if (!consumptionData.sources.every((source) => isStockQuantity(source.amount_available))) {
+          return "Informe quantidades positivas com até duas casas decimais.";
+        }
+        if (!isStockQuantity(Number(consumptionData.total_consumed))) return "Informe consumo positivo com até duas casas decimais.";
+        if (Number(consumptionData.total_consumed) > totalAvailable) return "Consumo maior que saldo disponível.";
+        return null;
       default:
-        return false;
+        return "Passo inválido.";
     }
   };
+
+  const stepValidationMessage = getStepValidationMessage();
+  const canProceed = () => stepValidationMessage === null;
 
   const referenceDataError = memberQuery.isError ? memberQuery.error : vegetalQuery.isError ? vegetalQuery.error : null;
   const retryReferenceData = () => {
@@ -361,7 +395,7 @@ export default function NovaSessao() {
         {hasReferenceDataError && <QueryError error={referenceDataError} onRetry={retryReferenceData} />}
         {/* Header */}
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} aria-label="Voltar">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
@@ -666,12 +700,22 @@ export default function NovaSessao() {
                       <Switch
                         id="is_united"
                         checked={consumptionData.is_united}
-                        onCheckedChange={(checked) =>
+                        onCheckedChange={(checked) => {
+                          if (checked) {
+                            setConsumptionData({ ...consumptionData, is_united: true });
+                            return;
+                          }
+
+                          const firstSource = consumptionData.sources[0];
+                          const vegetal = firstSource ? vegetalById.get(firstSource.vegetal_id) : undefined;
                           setConsumptionData({
                             ...consumptionData,
-                            is_united: checked,
-                          })
-                        }
+                            is_united: false,
+                            sources: firstSource
+                              ? [{ ...firstSource, amount_available: vegetal ? Number(vegetal.quantity) : 0 }]
+                              : [],
+                          });
+                        }}
                       />
                       <Label htmlFor="is_united" className="text-sm">
                         Vegetal Unido
@@ -680,9 +724,7 @@ export default function NovaSessao() {
                   </div>
 
                   <div className="grid gap-2 max-h-48 overflow-y-auto">
-                    {vegetais
-                      ?.filter((v) => v.quantity > 0)
-                      .map((vegetal) => {
+                    {selectableVegetais.map((vegetal) => {
                         const isSelected = consumptionData.sources.some(
                           (s) => s.vegetal_id === vegetal.id
                         );
@@ -706,6 +748,7 @@ export default function NovaSessao() {
                               <p className="font-medium truncate">{vegetal.name}</p>
                               <p className="text-sm text-muted-foreground">
                                 Disponível: {Number(vegetal.quantity).toFixed(2)} L
+                                {isSelected && Number(vegetal.quantity) <= 0 ? " — desmarque este lote" : ""}
                               </p>
                             </div>
                             {isSelected && consumptionData.is_united && (
@@ -728,7 +771,7 @@ export default function NovaSessao() {
                             )}
                           </div>
                         );
-                      })}
+                    })}
                   </div>
                 </div>
 
@@ -788,6 +831,11 @@ export default function NovaSessao() {
         </Card>
 
         {/* Navigation */}
+        {stepValidationMessage && (
+          <p className="text-sm text-muted-foreground" role="status">
+            {stepValidationMessage}
+          </p>
+        )}
         <div className="flex gap-4">
           <Button
             variant="outline"

@@ -1,7 +1,11 @@
 import { useMemo } from "react";
 import { useVegetais } from "./useVegetais";
 import { Session } from "@/types/database";
-import { MemberDisplayData, getMemberDisplayNameForValue } from "@/lib/memberDisplay";
+import {
+  MemberDisplayData,
+  getMemberDisplayName,
+  getMemberIdentityKey,
+} from "@/lib/memberDisplay";
 
 interface StatisticsFilters {
   year?: number;
@@ -36,6 +40,15 @@ export function useStatistics(
   const { data: vegetais } = useVegetais();
 
   return useMemo(() => {
+    const displayNamesByIdentity = new Map(
+      (members || []).map((member) => {
+        const displayName = getMemberDisplayName(member);
+        return [getMemberIdentityKey(displayName), displayName];
+      }),
+    );
+    const getDisplayName = (name: string) =>
+      displayNamesByIdentity.get(getMemberIdentityKey(name)) ?? name;
+
     // Apply type filter if provided
     let filteredSessions = sessions || [];
     if (filters?.type) {
@@ -102,7 +115,7 @@ export function useStatistics(
       filteredSessions.forEach((s) => {
         const name = s[field];
         if (name) {
-          const displayName = getMemberDisplayNameForValue(name, members);
+          const displayName = getDisplayName(name);
           counts[displayName] = (counts[displayName] || 0) + 1;
         }
       });
@@ -121,7 +134,7 @@ export function useStatistics(
       for (const s of sortedSessions) {
         const name = s[field];
         if (name) {
-          result.push({ name: getMemberDisplayNameForValue(name, members), date: s.date, type: s.type });
+          result.push({ name: getDisplayName(name), date: s.date, type: s.type });
         }
       }
       return result;
@@ -135,7 +148,7 @@ export function useStatistics(
     const sequenciaMestresAssistentes: { name: string; date: string; type: string }[] = [];
     for (const s of sortedByDateDesc) {
       const name = s.mestre_assistente;
-      const displayName = name ? getMemberDisplayNameForValue(name, members) : "";
+      const displayName = name ? getDisplayName(name) : "";
       if (displayName && !seenAssistentes.has(displayName)) {
         seenAssistentes.add(displayName);
         sequenciaMestresAssistentes.push({ name: displayName, date: s.date, type: s.type });
