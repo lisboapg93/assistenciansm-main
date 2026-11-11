@@ -1,13 +1,15 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
-import { lazy, Suspense } from "react";
-import { AuthProvider, useAuthContext } from "@/contexts/AuthContext";
-import Login from "./pages/Login";
+import { lazy, Suspense, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
+import { AuthProvider } from "@/contexts/AuthContext";
+import { useAuthContext } from "@/hooks/useAuthContext";
 import { AccessError } from "@/components/AccessError";
+import { FullScreenSpinner } from "@/components/layout/FullScreenSpinner";
+import { canAccessRoute, getHomeRoute, LOGIN_ROUTE, type ProtectedRoutePath } from "@/lib/permissions";
+import Login from "./pages/Login";
 
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Estoque = lazy(() => import("./pages/Estoque"));
@@ -20,6 +22,19 @@ const Membros = lazy(() => import("./pages/Membros"));
 const Erros = lazy(() => import("./pages/Erros"));
 const Atividades = lazy(() => import("./pages/Atividades"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+
+const PROTECTED_PAGES: ReadonlyArray<{ path: ProtectedRoutePath; Page: LazyExoticComponent<ComponentType> }> = [
+  { path: "/dashboard", Page: Dashboard },
+  { path: "/estoque", Page: Estoque },
+  { path: "/estoque/novo", Page: NovaEntrada },
+  { path: "/sessao/nova", Page: NovaSessao },
+  { path: "/sessao/editar/:id", Page: EditarSessao },
+  { path: "/historico", Page: Historico },
+  { path: "/relatorios", Page: Relatorios },
+  { path: "/membros", Page: Membros },
+  { path: "/atividades", Page: Atividades },
+  { path: "/erros", Page: Erros },
+];
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,67 +49,29 @@ const queryClient = new QueryClient({
   },
 });
 
-function ProtectedRoute({ 
-  children, 
-  requiresEditor = false, 
-  allowAssistant = false,
-  denyAssistant = false 
-}: { 
-  children: React.ReactNode; 
-  requiresEditor?: boolean; 
-  allowAssistant?: boolean;
-  denyAssistant?: boolean;
-}) {
-  const { isAuthenticated, isLoading, isEditor, isAssistant, userRole } = useAuthContext();
-  
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-  
-  if (!isAuthenticated) {
-    return <Navigate to="/" replace />;
-  }
+/**
+ * Libera a rota conforme `ROUTE_ROLES`. Sem sessão vai para o login; papel sem
+ * permissão vai para a tela inicial do papel (assistente: /sessao/nova).
+ */
+function ProtectedRoute({ path, children }: { path: ProtectedRoutePath; children: ReactNode }) {
+  const { isAuthenticated, isLoading, userRole } = useAuthContext();
 
+  if (isLoading) return <FullScreenSpinner />;
+  if (!isAuthenticated) return <Navigate to={LOGIN_ROUTE} replace />;
   if (!userRole) return <AccessError />;
+  if (!canAccessRoute(userRole, path)) return <Navigate to={getHomeRoute(userRole)} replace />;
 
-  // If assistant tries to access denied routes, redirect to their home
-  if (isAssistant && denyAssistant) {
-    return <Navigate to="/sessao/nova" replace />;
-  }
-
-  // If route requires editor and user is not editor (but allow assistant for specific routes)
-  if (requiresEditor && !isEditor && !(allowAssistant && isAssistant)) {
-    return <Navigate to={isAssistant ? "/sessao/nova" : "/dashboard"} replace />;
-  }
-  
   return <>{children}</>;
 }
 
 function AppRoutes() {
   return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen flex items-center justify-center bg-background">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-        </div>
-      }
-    >
+    <Suspense fallback={<FullScreenSpinner />}>
       <Routes>
-        <Route path="/" element={<Login />} />
-        <Route path="/dashboard" element={<ProtectedRoute denyAssistant><Dashboard /></ProtectedRoute>} />
-        <Route path="/estoque" element={<ProtectedRoute><Estoque /></ProtectedRoute>} />
-        <Route path="/estoque/novo" element={<ProtectedRoute requiresEditor><NovaEntrada /></ProtectedRoute>} />
-        <Route path="/sessao/nova" element={<ProtectedRoute requiresEditor allowAssistant><NovaSessao /></ProtectedRoute>} />
-        <Route path="/sessao/editar/:id" element={<ProtectedRoute requiresEditor><EditarSessao /></ProtectedRoute>} />
-        <Route path="/historico" element={<ProtectedRoute><Historico /></ProtectedRoute>} />
-        <Route path="/relatorios" element={<ProtectedRoute denyAssistant><Relatorios /></ProtectedRoute>} />
-        <Route path="/membros" element={<ProtectedRoute requiresEditor><Membros /></ProtectedRoute>} />
-        <Route path="/atividades" element={<ProtectedRoute denyAssistant><Atividades /></ProtectedRoute>} />
-        <Route path="/erros" element={<ProtectedRoute requiresEditor><Erros /></ProtectedRoute>} />
+        <Route path={LOGIN_ROUTE} element={<Login />} />
+        {PROTECTED_PAGES.map(({ path, Page }) => (
+          <Route key={path} path={path} element={<ProtectedRoute path={path}><Page /></ProtectedRoute>} />
+        ))}
         <Route path="*" element={<NotFound />} />
       </Routes>
     </Suspense>
@@ -106,7 +83,6 @@ const App = () => (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
-        <Sonner />
         <BrowserRouter>
           <AuthProvider>
             <AppRoutes />

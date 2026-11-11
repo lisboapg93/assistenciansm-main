@@ -1,40 +1,28 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
+import { Plus, Droplets, Search } from "lucide-react";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Plus, Droplets, Calendar, TrendingDown, Search, Eye } from "lucide-react";
-import { useVegetais, useTotalStock, useStockForecast } from "@/hooks/useVegetais";
+import { Skeleton } from "@/components/ui/skeleton";
+import { QueryError } from "@/components/QueryError";
+import { StockSummaryCard } from "@/components/vegetal/StockSummaryCard";
+import { VegetalDetailModal } from "@/components/vegetal/VegetalDetailModal";
+import { VegetalTable } from "@/components/vegetal/VegetalTable";
+import { useAuthContext } from "@/hooks/useAuthContext";
+import { useMembers } from "@/hooks/useMembers";
 import { useSessions } from "@/hooks/useSessions";
 import { useStatistics } from "@/hooks/useStatistics";
-import { Skeleton } from "@/components/ui/skeleton";
-import { format } from "date-fns";
-import { ptBR } from "date-fns/locale";
-import { parseDbDateToLocal } from "@/lib/date";
-import { Link } from "react-router-dom";
+import { useVegetais, useStockForecast } from "@/hooks/useVegetais";
+import { getStockForecastLabels } from "@/lib/stockForecast";
+import { filterVegetaisBySearch } from "@/lib/stockLots";
+import { formatLiters, getTotalStock } from "@/lib/stockQuantity";
 import { Vegetal } from "@/types/database";
-import { VegetalDetailModal } from "@/components/vegetal/VegetalDetailModal";
-import { useAuthContext } from "@/contexts/AuthContext";
-import { useMembers } from "@/hooks/useMembers";
-import { getMemberDisplayNameForValue } from "@/lib/memberDisplay";
-import { QueryError } from "@/components/QueryError";
+
+const SKELETON_ROW_COUNT = 5;
 
 export default function Estoque() {
   const { isEditor, isAssistant } = useAuthContext();
@@ -44,37 +32,36 @@ export default function Estoque() {
 
   const vegetalQuery = useVegetais(showArchived);
   const stockQuery = useVegetais();
+  // Assistentes não leem o histórico de sessões; a previsão deles vem do RPC.
   const sessionQuery = useSessions(undefined, !isAssistant);
   const memberQuery = useMembers();
   const { data: vegetais, isLoading } = vegetalQuery;
   const { data: sessions } = sessionQuery;
   const { data: members } = memberQuery;
-  const totalStock = useTotalStock();
   const stats = useStatistics(isAssistant ? undefined : sessions, undefined, members);
-  const { data: assistantForecast, isError: forecastError } = useStockForecast(isAssistant);
-  const sessionsRemaining = isAssistant
-    ? Number(assistantForecast?.sessions_remaining || 0)
-    : stats.sessionsRemaining;
-  const monthsRemaining = isAssistant
-    ? Number(assistantForecast?.months_remaining || 0)
-    : stats.monthsRemaining;
-  const hasSessionHistory = isAssistant || Boolean(sessions?.length);
-  const forecastLabel = isAssistant && !assistantForecast
-    ? forecastError ? "Indisponível" : "Carregando..."
-    : !isAssistant && sessionQuery.isLoading ? "Carregando..."
-      : !hasSessionHistory ? "Sem histórico"
-        : `~${Math.floor(sessionsRemaining)} sessões`;
-  const durationLabel = isAssistant && !assistantForecast
-    ? forecastError ? "Indisponível" : "Carregando..."
-    : !isAssistant && sessionQuery.isLoading ? "Carregando..."
-      : !hasSessionHistory ? "Sem histórico"
-        : `~${monthsRemaining.toFixed(1)} meses`;
+  const forecastQuery = useStockForecast(isAssistant);
 
-  const filteredVegetais = vegetais?.filter(
-    (v) =>
-      v.name.toLowerCase().includes(search.toLowerCase()) ||
-      getMemberDisplayNameForValue(v.master, members).toLowerCase().includes(search.toLowerCase())
-  );
+  const assistantForecast = forecastQuery.data;
+  const { forecast: forecastLabel, duration: durationLabel } = getStockForecastLabels(isAssistant
+    ? {
+      isLoading: !assistantForecast && !forecastQuery.isError,
+      isUnavailable: !assistantForecast && forecastQuery.isError,
+      hasSessionHistory: true,
+      sessionsRemaining: Number(assistantForecast?.sessions_remaining || 0),
+      monthsRemaining: Number(assistantForecast?.months_remaining || 0),
+    }
+    : {
+      isLoading: sessionQuery.isLoading,
+      isUnavailable: false,
+      hasSessionHistory: Boolean(sessions?.length),
+      sessionsRemaining: stats.sessionsRemaining,
+      monthsRemaining: stats.monthsRemaining,
+    });
+  const totalStockLabel = stockQuery.isLoading ? "Carregando..." : formatLiters(getTotalStock(stockQuery.data));
+
+  const filteredVegetais = filterVegetaisBySearch(vegetais, search, members);
+  // Prefere a versão mais recente do lote (após saída/ajuste) à cópia selecionada.
+  const detailVegetal = vegetais?.find((lot) => lot.id === selectedVegetal?.id) || selectedVegetal;
 
   const queries = [vegetalQuery, stockQuery, memberQuery, ...(!isAssistant ? [sessionQuery] : [])];
   const failedQuery = queries.find((query) => query.isError && query.data === undefined);
@@ -94,55 +81,20 @@ export default function Estoque() {
             </p>
           </div>
           {isEditor && (
-            <Link to="/estoque/novo">
-              <Button className="gap-2">
+            <Button asChild className="gap-2">
+              <Link to="/estoque/novo">
                 <Plus className="h-4 w-4" />
                 Nova Entrada
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           )}
         </div>
 
-        {/* KPI Header */}
-        <Card className="bg-gradient-to-r from-primary/15 to-card border-primary/20">
-          <CardContent className="p-6">
-            <div className="grid gap-6 md:grid-cols-3">
-              <div className="flex items-center gap-4">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-primary/20">
-                  <Droplets className="h-6 w-6 text-primary" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Estoque Total</p>
-                  <p className="text-2xl font-bold text-primary">
-                    {stockQuery.isLoading ? "Carregando..." : `${totalStock.toFixed(2)} L`}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-success/20">
-                  <Calendar className="h-6 w-6 text-success" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Previsão</p>
-                  <p className="text-2xl font-bold">
-                    {forecastLabel}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center justify-center w-12 h-12 rounded-xl bg-warning/20">
-                  <TrendingDown className="h-6 w-6 text-warning" />
-                </div>
-                <div>
-                  <p className="text-sm text-muted-foreground">Duração</p>
-                  <p className="text-2xl font-bold">
-                    {durationLabel}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <StockSummaryCard
+          totalStockLabel={totalStockLabel}
+          forecastLabel={forecastLabel}
+          durationLabel={durationLabel}
+        />
 
         {/* Filters */}
         <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
@@ -173,95 +125,30 @@ export default function Estoque() {
           <CardContent className="p-0">
             {isLoading ? (
               <div className="p-6 space-y-4">
-                {[...Array(5)].map((_, i) => (
+                {Array.from({ length: SKELETON_ROW_COUNT }, (_, i) => (
                   <Skeleton key={i} className="h-12 w-full" />
                 ))}
               </div>
-            ) : filteredVegetais?.length === 0 ? (
+            ) : !filteredVegetais?.length ? (
               <div className="p-12 text-center">
                 <Droplets className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <p className="text-lg font-medium">Nenhum vegetal encontrado</p>
                 <p className="text-muted-foreground mt-1">
-                  Cadastre um novo lote para começar
+                  {search.trim()
+                    ? "Tente buscar por outro nome ou mestre"
+                    : isEditor ? "Cadastre um novo lote para começar" : "Nenhum lote disponível no momento"}
                 </p>
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Nome / Lote</TableHead>
-                    <TableHead className="hidden md:table-cell">Mestre do Preparo</TableHead>
-                    <TableHead className="hidden md:table-cell">Data Envase</TableHead>
-                    <TableHead className="text-right">Quantidade</TableHead>
-                    <TableHead className="w-[50px]"></TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredVegetais?.map((vegetal) => {
-                    const isZeroQuantity = showArchived && Number(vegetal.quantity) <= 0;
-
-                    return (
-                      <TableRow
-                        key={vegetal.id}
-                        className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => setSelectedVegetal(vegetal)}
-                      >
-                        <TableCell>
-                          <div>
-                            <p className="font-medium">{vegetal.name}</p>
-                            <p className="text-sm text-muted-foreground md:hidden">
-                              {getMemberDisplayNameForValue(vegetal.master, members)}
-                            </p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell">
-                          {getMemberDisplayNameForValue(vegetal.master, members)}
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell">
-                          {format(parseDbDateToLocal(vegetal.envase_date), "dd/MM/yyyy", {
-                            locale: ptBR,
-                          })}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <span
-                            className={
-                              isZeroQuantity
-                                ? "font-bold text-destructive"
-                                : Number(vegetal.quantity) < 2
-                                ? "text-warning"
-                                : "text-primary font-medium"
-                            }
-                          >
-                            {Number(vegetal.quantity).toFixed(2)} L
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`Ver detalhes de ${vegetal.name}`}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSelectedVegetal(vegetal);
-                            }}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
+              <VegetalTable vegetais={filteredVegetais} members={members} onSelect={setSelectedVegetal} />
             )}
           </CardContent>
         </Card>
       </div>
 
-      {/* Detail Modal */}
       <VegetalDetailModal
         key={selectedVegetal?.id ?? "closed"}
-        vegetal={vegetais?.find((lot) => lot.id === selectedVegetal?.id) || selectedVegetal}
+        vegetal={detailVegetal}
         members={members}
         open={!!selectedVegetal}
         onClose={() => setSelectedVegetal(null)}

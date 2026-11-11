@@ -1,10 +1,21 @@
 import type { Session, Vegetal } from "@/types/database";
 import { getMemberDisplayName, getMemberIdentityKey } from "@/lib/memberDisplay";
 import type { MemberDisplayData } from "@/lib/memberDisplay";
+import { sumStockQuantities } from "@/lib/stockQuantity";
 
 export interface StatisticsFilters {
-  year?: number;
   type?: string;
+}
+
+export interface ParticipantCount {
+  name: string;
+  count: number;
+}
+
+export interface ParticipantOccurrence {
+  name: string;
+  date: string;
+  type: string;
 }
 
 export interface StatisticsResult {
@@ -18,13 +29,123 @@ export interface StatisticsResult {
   monthsRemaining: number;
   frequencyDays: number;
   sessionsByType: Record<string, number>;
-  topDirigentes: { name: string; count: number }[];
-  topExplanadores: { name: string; count: number }[];
-  topLeitores: { name: string; count: number }[];
-  recentDirigentes: { name: string; date: string; type: string }[];
-  recentExplanadores: { name: string; date: string; type: string }[];
-  recentLeitores: { name: string; date: string; type: string }[];
-  sequenciaMestresAssistentes: { name: string; date: string; type: string }[];
+  topDirigentes: ParticipantCount[];
+  topExplanadores: ParticipantCount[];
+  topLeitores: ParticipantCount[];
+  recentDirigentes: ParticipantOccurrence[];
+  recentExplanadores: ParticipantOccurrence[];
+  recentLeitores: ParticipantOccurrence[];
+  sequenciaMestresAssistentes: ParticipantOccurrence[];
+}
+
+type SessionRoleField = "dirigente" | "explanador" | "leitor";
+type DisplayNameResolver = (name: string) => string;
+
+/** Intervalo assumido entre sessões quando não há histórico suficiente. */
+const DEFAULT_FREQUENCY_DAYS = 30;
+const AVERAGE_DAYS_PER_MONTH = 30.44;
+const MILLISECONDS_PER_DAY = 1000 * 60 * 60 * 24;
+const TOP_PARTICIPANTS_LIMIT = 5;
+
+const toNumber = (value: unknown) => Number(value) || 0;
+const sessionTime = (session: Pick<Session, "date">) => new Date(session.date).getTime();
+
+export function getTotalStock(vegetais: Pick<Vegetal, "quantity">[] | undefined): number {
+  return sumStockQuantities((vegetais || []).map((vegetal) => toNumber(vegetal.quantity)));
+}
+
+function createDisplayNameResolver(members: MemberDisplayData[] | undefined): DisplayNameResolver {
+  const displayNamesByIdentity = new Map(
+    (members || []).map((member) => {
+      const displayName = getMemberDisplayName(member);
+      return [getMemberIdentityKey(displayName), displayName];
+    }),
+  );
+  return (name) => displayNamesByIdentity.get(getMemberIdentityKey(name)) ?? name;
+}
+
+function countSessionsByType(sessions: Session[]): Record<string, number> {
+  const sessionsByType: Record<string, number> = {};
+  sessions.forEach((session) => {
+    sessionsByType[session.type] = (sessionsByType[session.type] || 0) + 1;
+  });
+  return sessionsByType;
+}
+
+function getTopParticipants(
+  sessions: Session[],
+  field: SessionRoleField,
+  resolveName: DisplayNameResolver,
+): ParticipantCount[] {
+  const counts: Record<string, number> = {};
+  sessions.forEach((session) => {
+    const name = session[field];
+    if (!name) return;
+    const displayName = resolveName(name);
+    counts[displayName] = (counts[displayName] || 0) + 1;
+  });
+
+  return Object.entries(counts)
+    .sort((first, second) => second[1] - first[1])
+    .slice(0, TOP_PARTICIPANTS_LIMIT)
+    .map(([name, count]) => ({ name, count }));
+}
+
+/** Participações mais recentes primeiro, mantendo repetições. */
+function getRecentParticipants(
+  sessionsByRecency: Session[],
+  field: SessionRoleField,
+  resolveName: DisplayNameResolver,
+): ParticipantOccurrence[] {
+  return sessionsByRecency.flatMap((session) => {
+    const name = session[field];
+    return name ? [{ name: resolveName(name), date: session.date, type: session.type }] : [];
+  });
+}
+
+/** Mestres assistentes únicos, do mais recente para o mais antigo. */
+function getAssistantSequence(
+  sessionsByRecency: Session[],
+  resolveName: DisplayNameResolver,
+): ParticipantOccurrence[] {
+  const seen = new Set<string>();
+  const sequence: ParticipantOccurrence[] = [];
+  for (const session of sessionsByRecency) {
+    const displayName = session.mestre_assistente ? resolveName(session.mestre_assistente) : "";
+    if (!displayName || seen.has(displayName)) continue;
+    seen.add(displayName);
+    sequence.push({ name: displayName, date: session.date, type: session.type });
+  }
+  return sequence;
+}
+
+function getAverageFrequencyDays(sessions: Session[]): number {
+  if (sessions.length < 2) return DEFAULT_FREQUENCY_DAYS;
+  const times = sessions.map(sessionTime).sort((first, second) => first - second);
+  const totalDays = (times[times.length - 1] - times[0]) / MILLISECONDS_PER_DAY;
+  return totalDays / (sessions.length - 1) || DEFAULT_FREQUENCY_DAYS;
+}
+
+function emptyStatistics(totalStock: number, sessionsByType: Record<string, number>): StatisticsResult {
+  return {
+    totalStock,
+    totalSessions: 0,
+    totalConsumed: 0,
+    averageConsumption: 0,
+    averageConsumptionPerMember: 0,
+    averageParticipants: 0,
+    sessionsRemaining: 0,
+    monthsRemaining: 0,
+    frequencyDays: 0,
+    sessionsByType,
+    topDirigentes: [],
+    topExplanadores: [],
+    topLeitores: [],
+    recentDirigentes: [],
+    recentExplanadores: [],
+    recentLeitores: [],
+    sequenciaMestresAssistentes: [],
+  };
 }
 
 export function calculateStatistics(
@@ -33,138 +154,52 @@ export function calculateStatistics(
   filters?: StatisticsFilters,
   members?: MemberDisplayData[],
 ): StatisticsResult {
-  const displayNamesByIdentity = new Map(
-    (members || []).map((member) => {
-      const displayName = getMemberDisplayName(member);
-      return [getMemberIdentityKey(displayName), displayName];
-    }),
-  );
-  const getDisplayName = (name: string) =>
-    displayNamesByIdentity.get(getMemberIdentityKey(name)) ?? name;
+  const allSessions = sessions || [];
+  const totalStock = getTotalStock(vegetais);
+  // A distribuição por tipo sempre considera todas as sessões, sem o filtro.
+  const sessionsByType = countSessionsByType(allSessions);
+  const filteredSessions = filters?.type
+    ? allSessions.filter((session) => session.type === filters.type)
+    : allSessions;
 
-  // Apply type filter if provided
-  let filteredSessions = sessions || [];
-  if (filters?.type) {
-    filteredSessions = filteredSessions.filter(s => s.type === filters.type);
-  }
-
-  if (filteredSessions.length === 0) {
-    return {
-      totalStock: vegetais?.reduce((sum, v) => sum + Number(v.quantity), 0) || 0,
-      totalSessions: 0,
-      totalConsumed: 0,
-      averageConsumption: 0,
-      averageConsumptionPerMember: 0,
-      averageParticipants: 0,
-      sessionsRemaining: 0,
-      monthsRemaining: 0,
-      frequencyDays: 0,
-      sessionsByType: {},
-      topDirigentes: [],
-      topExplanadores: [],
-      topLeitores: [],
-      recentDirigentes: [],
-      recentExplanadores: [],
-      recentLeitores: [],
-      sequenciaMestresAssistentes: [],
-    };
-  }
-
-  const totalStock = vegetais?.reduce((sum, v) => sum + Number(v.quantity), 0) || 0;
   const totalSessions = filteredSessions.length;
+  if (totalSessions === 0) return emptyStatistics(totalStock, sessionsByType);
+
+  const resolveName = createDisplayNameResolver(members);
   const totalConsumed = filteredSessions.reduce(
-    (sum, s) => sum + (s.consumption?.total_consumed || 0),
-    0
+    (sum, session) => sum + toNumber(session.consumption?.total_consumed),
+    0,
+  );
+  const totalMemberAttendances = filteredSessions.reduce(
+    (sum, session) => sum + toNumber(session.participants?.socios),
+    0,
+  );
+  const totalParticipants = filteredSessions.reduce(
+    (sum, session) => sum + toNumber(session.total_participants),
+    0,
   );
   const averageConsumption = totalConsumed / totalSessions;
-  const totalMemberAttendances = filteredSessions.reduce(
-    (sum, session) => sum + Number(session.participants?.socios || 0),
-    0
-  );
-  const averageConsumptionPerMember =
-    totalMemberAttendances > 0 ? totalConsumed / totalMemberAttendances : 0;
-  const averageParticipants =
-    filteredSessions.reduce((sum, s) => sum + s.total_participants, 0) / totalSessions;
-
-  // Calculate frequency
-  const dates = filteredSessions.map((s) => new Date(s.date).getTime()).sort((a, b) => a - b);
-  const totalDays =
-    dates.length > 1 ? (dates[dates.length - 1] - dates[0]) / (1000 * 60 * 60 * 24) : 0;
-  const frequencyDays = totalSessions > 1 ? Math.abs(totalDays / (totalSessions - 1)) || 30 : 30;
-
-  // Forecast
+  const frequencyDays = getAverageFrequencyDays(filteredSessions);
   const sessionsRemaining = averageConsumption > 0 ? totalStock / averageConsumption : 0;
-  const monthsRemaining = (sessionsRemaining * frequencyDays) / 30.44;
-
-  // Sessions by type (always use ALL sessions, not filtered)
-  const sessionsByType: Record<string, number> = {};
-  (sessions || []).forEach((s) => {
-    sessionsByType[s.type] = (sessionsByType[s.type] || 0) + 1;
-  });
-
-  // Top participants by count
-  const countBy = (field: "dirigente" | "explanador" | "leitor") => {
-    const counts: Record<string, number> = {};
-    filteredSessions.forEach((s) => {
-      const name = s[field];
-      if (name) {
-        const displayName = getDisplayName(name);
-        counts[displayName] = (counts[displayName] || 0) + 1;
-      }
-    });
-    return Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([name, count]) => ({ name, count }));
-  };
-
-  // Recent participants by date (most recent first, including duplicates)
-  const recentBy = (field: "dirigente" | "explanador" | "leitor") => {
-    const sortedSessions = [...filteredSessions].sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-    const result: { name: string; date: string; type: string }[] = [];
-    for (const s of sortedSessions) {
-      const name = s[field];
-      if (name) {
-        result.push({ name: getDisplayName(name), date: s.date, type: s.type });
-      }
-    }
-    return result;
-  };
-
-  // Sequência de Mestres Assistentes (nomes únicos, ordem do mais recente para o mais antigo)
-  const sortedByDateDesc = [...filteredSessions].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
-  const seenAssistentes = new Set<string>();
-  const sequenciaMestresAssistentes: { name: string; date: string; type: string }[] = [];
-  for (const s of sortedByDateDesc) {
-    const name = s.mestre_assistente;
-    const displayName = name ? getDisplayName(name) : "";
-    if (displayName && !seenAssistentes.has(displayName)) {
-      seenAssistentes.add(displayName);
-      sequenciaMestresAssistentes.push({ name: displayName, date: s.date, type: s.type });
-    }
-  }
+  const sessionsByRecency = [...filteredSessions].sort((first, second) => sessionTime(second) - sessionTime(first));
 
   return {
     totalStock,
     totalSessions,
     totalConsumed,
     averageConsumption,
-    averageConsumptionPerMember,
-    averageParticipants,
+    averageConsumptionPerMember: totalMemberAttendances > 0 ? totalConsumed / totalMemberAttendances : 0,
+    averageParticipants: totalParticipants / totalSessions,
     sessionsRemaining,
-    monthsRemaining,
+    monthsRemaining: (sessionsRemaining * frequencyDays) / AVERAGE_DAYS_PER_MONTH,
     frequencyDays,
     sessionsByType,
-    topDirigentes: countBy("dirigente"),
-    topExplanadores: countBy("explanador"),
-    topLeitores: countBy("leitor"),
-    recentDirigentes: recentBy("dirigente"),
-    recentExplanadores: recentBy("explanador"),
-    recentLeitores: recentBy("leitor"),
-    sequenciaMestresAssistentes,
+    topDirigentes: getTopParticipants(filteredSessions, "dirigente", resolveName),
+    topExplanadores: getTopParticipants(filteredSessions, "explanador", resolveName),
+    topLeitores: getTopParticipants(filteredSessions, "leitor", resolveName),
+    recentDirigentes: getRecentParticipants(sessionsByRecency, "dirigente", resolveName),
+    recentExplanadores: getRecentParticipants(sessionsByRecency, "explanador", resolveName),
+    recentLeitores: getRecentParticipants(sessionsByRecency, "leitor", resolveName),
+    sequenciaMestresAssistentes: getAssistantSequence(sessionsByRecency, resolveName),
   };
 }

@@ -18,60 +18,57 @@ import {
   Users,
   ShieldAlert,
   ClipboardList,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useAuthContext } from "@/contexts/AuthContext";
-import { Badge } from "@/components/ui/badge";
+import { useAuthContext } from "@/hooks/useAuthContext";
+import { Badge, type BadgeProps } from "@/components/ui/badge";
+import { canAccessRoute, LOGIN_ROUTE, type AppRole, type ProtectedRoutePath } from "@/lib/permissions";
 
-const navItems = [
-  { title: "Dashboard", path: "/dashboard", icon: LayoutDashboard, hideForAssistant: true },
+interface NavItem {
+  title: string;
+  path: ProtectedRoutePath;
+  icon: LucideIcon;
+}
+
+// A visibilidade de cada item vem de ROUTE_ROLES, a mesma regra do ProtectedRoute.
+const NAV_ITEMS: readonly NavItem[] = [
+  { title: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
   { title: "Sala do Vegetal", path: "/estoque", icon: Droplets },
-  { title: "Nova Sessão", path: "/sessao/nova", icon: Calendar, requiresEditor: true, showForAssistant: true },
+  { title: "Nova Sessão", path: "/sessao/nova", icon: Calendar },
   { title: "Histórico", path: "/historico", icon: History },
-  { title: "Relatórios", path: "/relatorios", icon: BarChart3, hideForAssistant: true },
-  { title: "Membros", path: "/membros", icon: Users, editorOnly: true },
-  { title: "Atividades", path: "/atividades", icon: ClipboardList, hideForAssistant: true },
-  { title: "Erros", path: "/erros", icon: ShieldAlert, editorOnly: true },
+  { title: "Relatórios", path: "/relatorios", icon: BarChart3 },
+  { title: "Membros", path: "/membros", icon: Users },
+  { title: "Atividades", path: "/atividades", icon: ClipboardList },
+  { title: "Erros", path: "/erros", icon: ShieldAlert },
 ];
 
-export function AppSidebar() {
-  const [isCollapsed, setIsCollapsed] = useState(
-    () => localStorage.getItem("assistencia-nsm-sidebar-collapsed") === "true"
-  );
+const ROLE_BADGES: Record<AppRole, { label: string; icon: LucideIcon; variant: BadgeProps["variant"] }> = {
+  editor: { label: "Editor", icon: Shield, variant: "default" },
+  assistant: { label: "Assistente", icon: Calendar, variant: "outline" },
+  viewer: { label: "Visualizador", icon: Eye, variant: "secondary" },
+};
+
+interface AppSidebarProps {
+  isCollapsed: boolean;
+  onToggleCollapsed: () => void;
+}
+
+export function AppSidebar({ isCollapsed, onToggleCollapsed }: AppSidebarProps) {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
-  const { signOut, user, userRole, isEditor, isAssistant } = useAuthContext();
+  const { signOut, user, userRole } = useAuthContext();
+  const isLightTheme = theme === "light";
+  const roleBadge = userRole ? ROLE_BADGES[userRole] : null;
+  const visibleNavItems = NAV_ITEMS.filter((item) => canAccessRoute(userRole, item.path));
 
   const handleLogout = async () => {
     await signOut();
-    navigate("/");
+    navigate(LOGIN_ROUTE);
   };
-
-  const toggleSidebar = () => {
-    setIsCollapsed((previousValue) => {
-      const nextValue = !previousValue;
-      localStorage.setItem("assistencia-nsm-sidebar-collapsed", String(nextValue));
-      window.dispatchEvent(new Event("assistencia-nsm-sidebar-change"));
-      return nextValue;
-    });
-  };
-
-  // Filter nav items based on user role
-  const visibleNavItems = navItems.filter((item) => {
-    // Editor-only items (like Membros) - only show for editors
-    if (item.editorOnly) {
-      return isEditor;
-    }
-    // For assistant role, only show items marked for assistant or not hidden
-    if (isAssistant) {
-      return item.showForAssistant || (!item.hideForAssistant && !item.requiresEditor);
-    }
-    // For other roles, hide items that require editor unless user is editor
-    return !item.requiresEditor || isEditor;
-  });
 
   return (
     <>
@@ -80,7 +77,7 @@ export function AppSidebar() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setIsMobileOpen(!isMobileOpen)}
+          onClick={() => setIsMobileOpen((isOpen) => !isOpen)}
           aria-label={isMobileOpen ? "Fechar menu" : "Abrir menu"}
         >
           {isMobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -91,6 +88,7 @@ export function AppSidebar() {
       {isMobileOpen && (
         <div
           className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 md:hidden"
+          aria-hidden="true"
           onClick={() => setIsMobileOpen(false)}
         />
       )}
@@ -116,27 +114,12 @@ export function AppSidebar() {
             {!isCollapsed && user && (
               <div className="translate-x-7 text-center animate-fade-in">
                 <p className="text-xs text-muted-foreground truncate">{user.email}</p>
-                <Badge
-                  variant={isEditor ? "default" : isAssistant ? "outline" : "secondary"}
-                  className="mt-2 text-xs"
-                >
-                  {isEditor ? (
-                    <>
-                      <Shield className="h-3 w-3 mr-1" />
-                      Editor
-                    </>
-                  ) : isAssistant ? (
-                    <>
-                      <Calendar className="h-3 w-3 mr-1" />
-                      Assistente
-                    </>
-                  ) : (
-                    <>
-                      <Eye className="h-3 w-3 mr-1" />
-                      Visualizador
-                    </>
-                  )}
-                </Badge>
+                {roleBadge && (
+                  <Badge variant={roleBadge.variant} className="mt-2 text-xs">
+                    <roleBadge.icon className="h-3 w-3 mr-1" />
+                    {roleBadge.label}
+                  </Badge>
+                )}
               </div>
             )}
           </div>
@@ -149,6 +132,8 @@ export function AppSidebar() {
                 <NavLink
                   key={item.path}
                   to={item.path}
+                  aria-label={item.title}
+                  title={isCollapsed ? item.title : undefined}
                   onClick={() => setIsMobileOpen(false)}
                   className={cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200",
@@ -176,8 +161,9 @@ export function AppSidebar() {
                   "text-muted-foreground",
                   isCollapsed ? "mx-auto w-10 justify-center" : "w-full justify-start"
                 )}
-                onClick={toggleSidebar}
-                aria-label="Recolher ou expandir menu"
+                onClick={onToggleCollapsed}
+                aria-label={isCollapsed ? "Expandir menu" : "Recolher menu"}
+                aria-expanded={!isCollapsed}
               >
                 <Menu className="h-4 w-4" />
                 {!isCollapsed && <span className="ml-2">Recolher</span>}
@@ -191,11 +177,11 @@ export function AppSidebar() {
                 "text-muted-foreground",
                 isCollapsed ? "mx-auto w-10 justify-center" : "w-full justify-start"
               )}
-              onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-              aria-label={theme === "light" ? "Ativar modo noite" : "Ativar modo dia"}
+              onClick={() => setTheme(isLightTheme ? "dark" : "light")}
+              aria-label={isLightTheme ? "Ativar modo noite" : "Ativar modo dia"}
             >
-              {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-              {!isCollapsed && <span className="ml-2">{theme === "light" ? "Modo noite" : "Modo dia"}</span>}
+              {isLightTheme ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+              {!isCollapsed && <span className="ml-2">{isLightTheme ? "Modo noite" : "Modo dia"}</span>}
             </Button>
 
             <Button

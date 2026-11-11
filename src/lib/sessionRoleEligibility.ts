@@ -1,23 +1,24 @@
 import { getMemberIdentityKey, isMemberName } from "@/lib/memberDisplay";
+import type { MemberGrau } from "@/lib/memberDisplay";
 
 export interface MemberRoleData {
   name: string;
   grau: string | null;
 }
 
-const GRAU_QUADRO_DE_MESTRE = "Quadro de Mestre";
-const GRAU_QUADRO_DE_SOCIOS = "Quadro de Sócios";
-const GRAUS_DIRIGENTE_ESCALA = [
+const GRAU_QUADRO_DE_MESTRE: MemberGrau = "Quadro de Mestre";
+const GRAU_QUADRO_DE_SOCIOS: MemberGrau = "Quadro de Sócios";
+const GRAUS_DIRIGENTE_ESCALA: readonly string[] = [
   GRAU_QUADRO_DE_MESTRE,
   "Corpo do Conselho",
   "Corpo Instrutivo",
-];
+] satisfies MemberGrau[];
 const TIPOS_SESSAO_ESCALA = ["Primeira Escala", "Segunda Escala", "Escala Anual"];
 
 const findMember = (members: MemberRoleData[], name: string) =>
   members.find((member) => isMemberName(member, name));
 
-interface SessionRoleAssignment {
+export interface SessionRoleAssignment {
   type: string;
   isTransmissaoAssistencia: boolean;
   dirigente: string;
@@ -27,7 +28,18 @@ interface SessionRoleAssignment {
   mestreAssistente?: string | null;
 }
 
-export function getSessionRoleEligibilityChecks(current: SessionRoleAssignment, original: SessionRoleAssignment) {
+export interface SessionRoleEligibilityChecks {
+  dirigente: boolean;
+  segundoDirigente: boolean;
+  explanador: boolean;
+  leitor: boolean;
+  mestreAssistente: boolean;
+}
+
+export function getSessionRoleEligibilityChecks(
+  current: SessionRoleAssignment,
+  original: SessionRoleAssignment,
+): SessionRoleEligibilityChecks {
   const contextChanged = current.type !== original.type
     || current.isTransmissaoAssistencia !== original.isTransmissaoAssistencia;
   const changed = (name: string | null | undefined, previous: string | null | undefined) =>
@@ -63,6 +75,16 @@ export function getEligibleDirigentes<T extends MemberRoleData>(
     return members.filter((member) => member.grau !== GRAU_QUADRO_DE_SOCIOS);
   }
 
+  return members.filter((member) => member.grau === GRAU_QUADRO_DE_MESTRE);
+}
+
+const isEligibleExplanadorGrau = (grau: string | null) => !!grau && grau !== GRAU_QUADRO_DE_SOCIOS;
+
+export function getEligibleExplanadores<T extends MemberRoleData>(members: T[]): T[] {
+  return members.filter((member) => isEligibleExplanadorGrau(member.grau));
+}
+
+export function getEligibleMestresAssistentes<T extends MemberRoleData>(members: T[]): T[] {
   return members.filter((member) => member.grau === GRAU_QUADRO_DE_MESTRE);
 }
 
@@ -108,7 +130,7 @@ export function isEligibleExplanador(name: string, members: MemberRoleData[]) {
   if (!name.trim()) return true;
 
   const member = findMember(members, name);
-  return !!member && !!member.grau && member.grau !== GRAU_QUADRO_DE_SOCIOS;
+  return !!member && isEligibleExplanadorGrau(member.grau);
 }
 
 export function getSessionRoleValidationError({
@@ -129,13 +151,7 @@ export function getSessionRoleValidationError({
   leitor?: string;
   mestreAssistente?: string;
   onlyQuadroDeMestre?: boolean;
-  validateEligibility?: {
-    dirigente?: boolean;
-    segundoDirigente?: boolean;
-    explanador?: boolean;
-    leitor?: boolean;
-    mestreAssistente?: boolean;
-  };
+  validateEligibility?: Partial<SessionRoleEligibilityChecks>;
   members: MemberRoleData[];
 }) {
   const sessionRoles = [

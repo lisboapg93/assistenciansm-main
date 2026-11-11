@@ -22,11 +22,13 @@ export const CSV_TEMPLATE_HEADERS = [
   "fontes_vegetal",
 ] as const;
 
+export type SessionCsvColumn = (typeof CSV_TEMPLATE_HEADERS)[number];
+
 const LEGACY_POSITIONAL_HEADERS = CSV_TEMPLATE_HEADERS.filter(
   (column) => column !== "transmissao_assistencia" && column !== "segundo_dirigente",
 );
 
-const HEADER_ALIASES: Record<(typeof CSV_TEMPLATE_HEADERS)[number], string[]> = {
+const HEADER_ALIASES: Record<SessionCsvColumn, string[]> = {
   data: ["data", "date", "dt"],
   tipo: ["tipo", "type", "tipo_de_sessao", "tipo_sessao", "sessao"],
   transmissao_assistencia: ["transmissao_assistencia", "transmissao", "sessao_transmissao", "is_transmissao_assistencia"],
@@ -59,8 +61,6 @@ const normalizeHeader = (value: string) =>
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
-
-type SessionCsvColumn = (typeof CSV_TEMPLATE_HEADERS)[number];
 
 const REQUIRED_COLUMNS: SessionCsvColumn[] = [
   "data", "tipo", "dirigente", "mestre_assistente", "registrado_por", "consumo_total", "fontes_vegetal",

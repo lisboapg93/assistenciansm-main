@@ -1,8 +1,9 @@
 import type { Session } from "@/types/database";
-import { format } from "date-fns";
-import { parseDbDateToLocal } from "@/lib/date";
+import { todayBrazilianIsoDate } from "@/lib/date";
+import { formatSessionDate } from "@/lib/sessionDisplay";
 
 const yesNo = (value: boolean) => (value ? "Sim" : "Não");
+const HEADER_BACKGROUND_COLOR = "#DDEFE8";
 
 export async function exportHistoryToXlsx(sessions: Session[]) {
   const { default: writeXlsxFile } = await import("write-excel-file");
@@ -14,10 +15,10 @@ export async function exportHistoryToXlsx(sessions: Session[]) {
     "Tem áudio", "Observação",
   ];
   const headerRow = (headers: string[]) =>
-    headers.map((value) => ({ value, fontWeight: "bold" as const, backgroundColor: "#DDEFE8" }));
+    headers.map((value) => ({ value, fontWeight: "bold" as const, backgroundColor: HEADER_BACKGROUND_COLOR }));
 
   const historyRows = sessions.map((session) => [
-    format(parseDbDateToLocal(session.date), "dd/MM/yyyy"),
+    formatSessionDate(session.date),
     session.type,
     session.dirigente,
     session.mestre_assistente || "",
@@ -40,7 +41,7 @@ export async function exportHistoryToXlsx(sessions: Session[]) {
 
   const sourceRows = sessions.flatMap((session) =>
     (session.consumption?.sources || []).map((source) => [
-      format(parseDbDateToLocal(session.date), "dd/MM/yyyy"),
+      formatSessionDate(session.date),
       session.type,
       source.vegetal_name,
       source.amount_available,
@@ -59,6 +60,6 @@ export async function exportHistoryToXlsx(sessions: Session[]) {
 
   await writeXlsxFile(data, {
     sheets,
-    fileName: `backup-historico-${format(new Date(), "yyyy-MM-dd")}.xlsx`,
+    fileName: `backup-historico-${todayBrazilianIsoDate()}.xlsx`,
   });
 }

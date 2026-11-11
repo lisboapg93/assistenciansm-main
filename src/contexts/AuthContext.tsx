@@ -1,29 +1,22 @@
-import { createContext, useCallback, useContext, useState, useEffect, useRef, ReactNode } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import { User, Session } from "@supabase/supabase-js";
-import { getErrorMessage, logApplicationError } from "@/lib/errorLogging";
+import { useCallback, useEffect, useMemo, useRef, useState, ReactNode } from "react";
+import type { Session, User } from "@supabase/supabase-js";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAuthInactivity, INACTIVITY_TIMEOUT_MS, LAST_ACTIVITY_STORAGE_KEY } from "@/hooks/useAuthInactivity";
+import { supabase } from "@/integrations/supabase/client";
+import { getErrorMessage, logApplicationError } from "@/lib/errorLogging";
+import { resolveEffectiveRole, type AppRole } from "@/lib/permissions";
+import {
+  clearLastActivity,
+  isInactivityExpired,
+  markLoginAttemptActivity,
+  useAuthInactivity,
+} from "@/hooks/useAuthInactivity";
+import { AuthContext, type AuthContextType } from "@/contexts/authContextValue";
 
-type AppRole = "viewer" | "editor" | "assistant";
+const ROLE_REQUEST_TIMEOUT_MS = 10_000;
+const MISSING_PROFILE_MESSAGE = "Sua conta não possui um perfil de acesso. Contate o responsável pelo sistema.";
+const UNCONFIRMED_SESSION_MESSAGE = "Não foi possível confirmar sua sessão. Tente novamente.";
 
-interface AuthContextType {
-  user: User | null;
-  session: Session | null;
-  isAuthenticated: boolean;
-  isLoading: boolean;
-  authError: string | null;
-  retryUserRole: () => Promise<void>;
-  userRole: AppRole | null;
-  isEditor: boolean;
-  isAssistant: boolean;
-  signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  signUp: (email: string, password: string, displayName?: string) => Promise<{ error: Error | null }>;
-  signOut: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextType | null>(null);
-
+// Mesmo formato de chave usado pelo cliente Supabase (`sb-<ref>-auth-token`).
 const AUTH_STORAGE_KEY = `sb-${new URL(import.meta.env.VITE_SUPABASE_URL).hostname.split(".")[0]}-auth-token`;
 
 function removePersistedAuthSession() {
@@ -32,7 +25,16 @@ function removePersistedAuthSession() {
   localStorage.removeItem(`${AUTH_STORAGE_KEY}-user`);
 }
 
+class MissingProfileError extends Error {
+  constructor() {
+    super(MISSING_PROFILE_MESSAGE);
+    this.name = "MissingProfileError";
+  }
+}
+
+/** Erros que indicam que a sessão não vale mais — não adianta manter o papel em cache. */
 function isPermanentRoleError(error: unknown) {
+  if (error instanceof MissingProfileError) return true;
   if (!error || typeof error !== "object") return false;
   const record = error as { status?: unknown; code?: unknown; message?: unknown };
   const status = Number(record.status);
@@ -43,6 +45,29 @@ function isPermanentRoleError(error: unknown) {
   return code === "PGRST301" || /\b(jwt|token)\b.*\b(expir|inválid|invalid|malformed)\b/.test(message);
 }
 
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+async function requestUserRole(userId: string): Promise<AppRole> {
+  const timeoutController = new AbortController();
+  const timeoutId = window.setTimeout(() => timeoutController.abort(), ROLE_REQUEST_TIMEOUT_MS);
+  try {
+    const { data, error } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .abortSignal(timeoutController.signal);
+    if (error) throw error;
+
+    const role = resolveEffectiveRole(data?.map(({ role }) => role) ?? []);
+    if (!role) throw new MissingProfileError();
+    return role;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
@@ -50,9 +75,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [userRole, setUserRole] = useState<AppRole | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
-  // Descarta uma resposta de fetchUserRole desatualizada quando um segundo
-  // evento de auth (ex.: SIGNED_IN de outra conta logo após um SIGNED_OUT)
-  // chega antes da primeira consulta terminar.
+  // Identifica o evento de auth vigente. Respostas de consultas iniciadas por
+  // um evento anterior (ex.: SIGNED_IN de outra conta logo após SIGNED_OUT)
+  // são descartadas para não sobrescrever o papel da conta correta.
   const authEventIdRef = useRef(0);
   const activeUserIdRef = useRef<string | null>(null);
   const activeSessionRef = useRef<Session | null>(null);
@@ -81,14 +106,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const operationId = ++signOutOperationIdRef.current;
     const accessToken = activeSessionRef.current?.access_token;
     signingOutRef.current = true;
-    // Bloqueia esta e outras abas antes da revogação remota, que pode demorar.
+    // Bloqueia esta e as outras abas antes da revogação remota, que pode demorar.
     clearAuthState();
-    localStorage.removeItem(LAST_ACTIVITY_STORAGE_KEY);
+    clearLastActivity();
     removePersistedAuthSession();
 
     try {
-      // Revoga somente esta sessão. Usar o escopo global permitiria que uma
-      // requisição de logout antiga anulasse um login novo da mesma conta.
+      // Revoga somente esta sessão. O escopo global permitiria que um logout
+      // antigo anulasse um login novo da mesma conta.
       if (accessToken) {
         const { error } = await supabase.auth.admin.signOut(accessToken, "local");
         if (error) throw error;
@@ -102,44 +127,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [clearAuthState]);
 
-  // Fetch user role from database. `eventId` identifica o evento de auth que
-  // disparou esta busca; se um evento mais novo já assumiu o estado antes da
-  // consulta terminar, o resultado é descartado para não sobrescrever o papel
-  // da conta correta com o de uma consulta desatualizada.
   const fetchUserRole = useCallback(async (userId: string, eventId: number) => {
-    const applyRole = (role: AppRole) => {
-      if (authEventIdRef.current !== eventId) return;
+    const isCurrentEvent = () => authEventIdRef.current === eventId;
+    try {
+      const role = await requestUserRole(userId);
+      if (!isCurrentEvent()) return;
+      // Mudança de papel invalida dados carregados com as permissões antigas.
       if (userRoleRef.current && userRoleRef.current !== role) queryClient.clear();
       userRoleRef.current = role;
       setUserRole(role);
       setAuthError(null);
-    };
-
-    let missingProfile = false;
-    const timeoutController = new AbortController();
-    const timeoutId = window.setTimeout(() => timeoutController.abort(), 10000);
-    try {
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", userId)
-        .abortSignal(timeoutController.signal);
-
-      if (error) {
-        throw error;
-      }
-
-      // Dados anteriores à restrição de um papel por conta podem conter mais
-      // de uma linha. A precedência coincide com as permissões do banco.
-      const roles = new Set(data?.map(({ role }) => role) ?? []);
-      if (!roles.size) {
-        missingProfile = true;
-        throw new Error("Sua conta não possui um perfil de acesso. Contate o responsável pelo sistema.");
-      }
-      applyRole(roles.has("editor") ? "editor" : roles.has("assistant") ? "assistant" : "viewer");
-    } catch (err) {
-      if (authEventIdRef.current !== eventId) return;
-      void logApplicationError(err, {
+    } catch (error) {
+      if (!isCurrentEvent()) return;
+      void logApplicationError(error, {
         location: "AuthContext.fetchUserRole",
         operation: "read",
         entity: "user_roles",
@@ -147,14 +147,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
       // Falha transitória (rede, timeout) ao revalidar não pode expulsar quem já
       // tem papel conhecido: a tela de erro desmontaria o formulário em edição.
-      // Só a ausência confirmada de perfil remove o acesso.
-      if (userRoleRef.current && !missingProfile && !isPermanentRoleError(err)) return;
+      if (userRoleRef.current && !isPermanentRoleError(error)) return;
       queryClient.clear();
       userRoleRef.current = null;
       setUserRole(null);
-      setAuthError(getErrorMessage(err));
-    } finally {
-      window.clearTimeout(timeoutId);
+      setAuthError(getErrorMessage(error));
     }
   }, [queryClient]);
 
@@ -162,6 +159,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userId = activeUserIdRef.current;
     if (!userId || signingOutRef.current) return;
     if (roleRequestRef.current?.userId === userId) return roleRequestRef.current.promise;
+
     const eventId = ++authEventIdRef.current;
     if (!userRoleRef.current) setIsLoading(true);
     const promise = fetchUserRole(userId, eventId).finally(() => {
@@ -173,10 +171,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return promise;
   }, [fetchUserRole]);
 
-  // Centraliza a transição de autenticação para que tanto o listener quanto o
-  // retorno explícito do login atualizem o estado da mesma forma. O callback
-  // do Supabase é assíncrono; confirmar aqui a sessão retornada pelo login
-  // evita que a tela volte ao formulário enquanto ele ainda não foi emitido.
+  // Ponto único de transição de autenticação, usado pelo listener do Supabase
+  // e pelo retorno do login (o listener é assíncrono; confirmar aqui a sessão
+  // devolvida evita que a tela volte ao formulário antes do evento chegar).
   const synchronizeAuthState = useCallback((nextSession: Session | null) => {
     if (signingOutRef.current && nextSession) return;
     if (!nextSession) {
@@ -184,52 +181,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Guardada antes da checagem para que o logout por inatividade revogue
+    // também a sessão restaurada do armazenamento.
     activeSessionRef.current = nextSession;
-    const lastActivity = Number(localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY));
-    if (lastActivity > 0 && Date.now() - lastActivity >= INACTIVITY_TIMEOUT_MS) {
+    if (isInactivityExpired()) {
       // Nunca aguarda outra chamada Supabase dentro do listener de auth.
       void signOut();
       return;
     }
-    const nextUserId = nextSession?.user.id ?? null;
+
     setSession(nextSession);
+    const nextUserId = nextSession.user.id;
     // SIGNED_IN repetido e TOKEN_REFRESHED não desmontam a página atual.
     if (activeUserIdRef.current === nextUserId) return;
-    if (activeUserIdRef.current !== nextUserId) {
-      ++authEventIdRef.current;
-      queryClient.clear();
-      activeUserIdRef.current = nextUserId;
-    }
-    setIsLoading(true);
-    setUser(nextSession?.user ?? null);
+
+    ++authEventIdRef.current;
+    queryClient.clear();
+    activeUserIdRef.current = nextUserId;
     userRoleRef.current = null;
+    setIsLoading(true);
+    setUser(nextSession.user);
     setUserRole(null);
     setAuthError(null);
     setTimeout(() => void retryUserRole(), 0);
   }, [clearAuthState, retryUserRole, queryClient, signOut]);
 
   useEffect(() => {
-    // onAuthStateChange já emite o evento INITIAL_SESSION com a sessão atual
-    // logo após o subscribe, cobrindo a verificação inicial. Chamar
-    // supabase.auth.getSession() em paralelo aqui gerava uma corrida: se essa
-    // chamada resolvesse depois de um login (evento SIGNED_IN), ela sobrescrevia
-    // o estado com o valor antigo (capturado antes do login) e travava a tela
-    // de carregamento até um refresh. Por isso usamos só o listener.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, nextSession) => {
-        synchronizeAuthState(nextSession);
-        if (event === "TOKEN_REFRESHED" && nextSession) {
-          setTimeout(() => void retryUserRole(), 0);
-        }
-      }
-    );
+    // INITIAL_SESSION é emitido logo após o subscribe e cobre a verificação
+    // inicial. Não chame getSession() em paralelo: se resolvesse depois de um
+    // SIGNED_IN, sobrescreveria o estado com a sessão antiga.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      synchronizeAuthState(nextSession);
+      // Renovação de token também revalida o papel (pode ter sido alterado).
+      if (event === "TOKEN_REFRESHED" && nextSession) setTimeout(() => void retryUserRole(), 0);
+    });
 
-    // No fallback offline, a remoção do token no localStorage também precisa
-    // encerrar a sessão exibida nas outras abas.
+    // O logout remove o token sem passar pelo cliente Supabase; as outras abas
+    // percebem pela remoção no localStorage (`key === null` é um clear()).
     const handleAuthStorage = (event: StorageEvent) => {
-      if (event.key === AUTH_STORAGE_KEY && event.newValue === null) {
-        synchronizeAuthState(null);
-      }
+      const tokenRemoved = event.key === AUTH_STORAGE_KEY && event.newValue === null;
+      if (tokenRemoved || event.key === null) synchronizeAuthState(null);
     };
     window.addEventListener("storage", handleAuthStorage);
 
@@ -242,8 +233,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const revalidate = () => {
       if (document.visibilityState === "hidden" || !activeUserIdRef.current) return;
-      const lastActivity = Number(localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY));
-      if (lastActivity > 0 && Date.now() - lastActivity >= INACTIVITY_TIMEOUT_MS) {
+      if (isInactivityExpired()) {
         void signOut();
         return;
       }
@@ -257,89 +247,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [retryUserRole, signOut]);
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     // Login novo não deve ficar bloqueado por revogação remota de sessão antiga.
     ++signOutOperationIdRef.current;
     signingOutRef.current = false;
-
-    // Uma atividade de conta anterior no mesmo navegador pode já ter passado
-    // dos 30 minutos. Registrar esta tentativa evita que o efeito de
-    // inatividade encerre a sessão recém-autenticada imediatamente.
-    const previousActivity = localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY);
-    const attemptActivity = String(Date.now());
-    localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, attemptActivity);
+    const undoLoginActivity = markLoginAttemptActivity();
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      // O listener normalmente recebe SIGNED_IN, mas não dependemos somente
-      // dele: a API já devolve a sessão válida nesta resposta.
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (!error && data.session) {
         synchronizeAuthState(data.session);
         return { error: null };
       }
-
-      if (localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY) === attemptActivity) {
-        if (previousActivity === null) localStorage.removeItem(LAST_ACTIVITY_STORAGE_KEY);
-        else localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, previousActivity);
-      }
-
-      return { error: error ?? new Error("Não foi possível confirmar sua sessão. Tente novamente.") };
+      undoLoginActivity();
+      return { error: error ?? new Error(UNCONFIRMED_SESSION_MESSAGE) };
     } catch (error) {
-      if (localStorage.getItem(LAST_ACTIVITY_STORAGE_KEY) === attemptActivity) {
-        if (previousActivity === null) localStorage.removeItem(LAST_ACTIVITY_STORAGE_KEY);
-        else localStorage.setItem(LAST_ACTIVITY_STORAGE_KEY, previousActivity);
-      }
-
-      return { error: error instanceof Error ? error : new Error(String(error)) };
+      undoLoginActivity();
+      return { error: toError(error) };
     }
-  };
-
-  const signUp = async (email: string, password: string, displayName?: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: window.location.origin,
-        data: {
-          display_name: displayName,
-        },
-      },
-    });
-    return { error: error as Error | null };
-  };
+  }, [synchronizeAuthState]);
 
   useAuthInactivity(user, signOut);
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        session,
-        isAuthenticated: !!user,
-        isLoading,
-        authError,
-        retryUserRole,
-        userRole,
-        isEditor: userRole === "editor",
-        isAssistant: userRole === "assistant",
-        signIn,
-        signUp,
-        signOut,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
-}
+  const value = useMemo<AuthContextType>(() => ({
+    user,
+    session,
+    isAuthenticated: !!user,
+    isLoading,
+    authError,
+    retryUserRole,
+    userRole,
+    isEditor: userRole === "editor",
+    isAssistant: userRole === "assistant",
+    signIn,
+    signOut,
+  }), [user, session, isLoading, authError, retryUserRole, userRole, signIn, signOut]);
 
-export function useAuthContext() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error("useAuthContext must be used within an AuthProvider");
-  }
-  return context;
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

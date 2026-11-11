@@ -1,3 +1,9 @@
+import {
+  MEMBER_DUPLICATE_CONSTRAINTS,
+  SESSION_DUPLICATE_CONSTRAINT,
+  UNIQUE_VIOLATION_CODE,
+} from "@/lib/errorDiagnostics";
+
 export interface ErrorExplanationInput {
   code?: string | null;
   message?: string | null;
@@ -24,8 +30,11 @@ const LOCATION_LABELS: Record<string, string> = {
   "AuthContext.signOut": "Autenticação › sair da conta",
   "AuthContext.fetchUserRole": "Autenticação › conferir permissões",
   "Login.handleLogin": "Entrada › autenticar conta",
+  "Membros.create": "Membros › criar cadastro",
+  "Membros.update": "Membros › editar cadastro",
   "Membros.delete": "Membros › excluir cadastro",
   "useMembers.list": "Membros › carregar lista",
+  // Origens antigas mantidas para exibir registros já gravados no banco.
   "useMembers.checkExistingBeforeCreate": "Membros › verificar duplicidade",
   "useMembers.create": "Membros › criar cadastro",
   "addMemberIfNotExists.checkExisting": "Membros › verificar cadastro automático",
@@ -80,7 +89,7 @@ export function explainError(input: ErrorExplanationInput): ErrorExplanation {
     };
   }
 
-  if (["PGRST204", "42703"].includes(code) || message.includes("column") && message.includes("does not exist")) {
+  if (["PGRST204", "42703"].includes(code) || (message.includes("column") && message.includes("does not exist"))) {
     return {
       category: "Estrutura desatualizada",
       summary: "A API tentou usar um campo que não existe no schema atual.",
@@ -90,7 +99,7 @@ export function explainError(input: ErrorExplanationInput): ErrorExplanation {
     };
   }
 
-  if (["PGRST205", "42P01"].includes(code) || message.includes("relation") && message.includes("does not exist")) {
+  if (["PGRST205", "42P01"].includes(code) || (message.includes("relation") && message.includes("does not exist"))) {
     return {
       category: "Tabela ou view indisponível",
       summary: "A API não encontrou uma estrutura necessária no banco.",
@@ -100,10 +109,9 @@ export function explainError(input: ErrorExplanationInput): ErrorExplanation {
     };
   }
 
-  if (code === "23505") {
-    const duplicateSession = input.constraint === "session_no_duplicate_logical_record_idx";
-    const duplicateMember = ["members_name_key", "members_person_name_key_unique_idx", "members_identity_key_unique_idx"]
-      .includes(input.constraint || "");
+  if (code === UNIQUE_VIOLATION_CODE) {
+    const duplicateSession = input.constraint === SESSION_DUPLICATE_CONSTRAINT;
+    const duplicateMember = MEMBER_DUPLICATE_CONSTRAINTS.includes(input.constraint || "");
     return {
       category: "Registro duplicado",
       summary: duplicateSession

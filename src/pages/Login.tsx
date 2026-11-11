@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,31 +6,44 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Droplets, LoaderCircle, Lock, Mail } from "lucide-react";
 import { toast } from "sonner";
-import { useAuthContext } from "@/contexts/AuthContext";
+import { useAuthContext } from "@/hooks/useAuthContext";
 import { logApplicationError } from "@/lib/errorLogging";
 import { AccessError } from "@/components/AccessError";
+import { getHomeRoute } from "@/lib/permissions";
 
-type LoginErrorCategory = "invalid_credentials" | "offline" | "supabase_connection" | "supabase_server" | "rate_limited" | "unknown";
+type LoginErrorCategory =
+  | "invalid_credentials"
+  | "email_not_confirmed"
+  | "offline"
+  | "supabase_connection"
+  | "supabase_server"
+  | "rate_limited"
+  | "unknown";
 
 interface LoginErrorFeedback {
   category: LoginErrorCategory;
   message: string;
 }
 
-interface ErrorWithHttpStatus {
-  status?: unknown;
-}
+const SERVICE_UNAVAILABLE_MESSAGE = "Não foi possível acessar o serviço no momento. Tente novamente em alguns minutos.";
+const NETWORK_ERROR_PATTERNS = ["failed to fetch", "network request failed", "load failed", "name not resolved", "dns"];
 
 function getLoginErrorFeedback(error: Error): LoginErrorFeedback {
   const message = error.message.toLowerCase();
-  const rawStatus = (error as ErrorWithHttpStatus).status;
-  const status = typeof rawStatus === "number"
-    ? rawStatus
-    : undefined;
+  const { status: rawStatus, code: rawCode } = error as Error & { status?: unknown; code?: unknown };
+  const status = typeof rawStatus === "number" ? rawStatus : undefined;
+  const code = typeof rawCode === "string" ? rawCode : undefined;
 
   // A API de autenticação deliberadamente não informa se o e-mail existe.
-  if (message.includes("invalid login credentials")) {
+  if (code === "invalid_credentials" || message.includes("invalid login credentials")) {
     return { category: "invalid_credentials", message: "Email ou senha inválidos." };
+  }
+
+  if (code === "email_not_confirmed" || message.includes("email not confirmed")) {
+    return {
+      category: "email_not_confirmed",
+      message: "Seu e-mail ainda não foi confirmado. Contate o responsável pelo sistema.",
+    };
   }
 
   if (!navigator.onLine) {
@@ -40,20 +53,11 @@ function getLoginErrorFeedback(error: Error): LoginErrorFeedback {
     };
   }
 
-  if (
-    message.includes("failed to fetch") ||
-    message.includes("network request failed") ||
-    message.includes("load failed") ||
-    message.includes("name not resolved") ||
-    message.includes("dns")
-  ) {
-    return {
-      category: "supabase_connection",
-      message: "Não foi possível acessar o serviço no momento. Tente novamente em alguns minutos.",
-    };
+  if (NETWORK_ERROR_PATTERNS.some((pattern) => message.includes(pattern))) {
+    return { category: "supabase_connection", message: SERVICE_UNAVAILABLE_MESSAGE };
   }
 
-  if (status === 429 || message.includes("rate limit")) {
+  if (status === 429 || code === "over_request_rate_limit" || message.includes("rate limit")) {
     return {
       category: "rate_limited",
       message: "Muitas tentativas de login. Aguarde alguns minutos antes de tentar novamente.",
@@ -61,10 +65,7 @@ function getLoginErrorFeedback(error: Error): LoginErrorFeedback {
   }
 
   if (status !== undefined && status >= 500) {
-    return {
-      category: "supabase_server",
-      message: "Não foi possível acessar o serviço no momento. Tente novamente em alguns minutos.",
-    };
+    return { category: "supabase_server", message: SERVICE_UNAVAILABLE_MESSAGE };
   }
 
   return {
@@ -73,59 +74,52 @@ function getLoginErrorFeedback(error: Error): LoginErrorFeedback {
   };
 }
 
+// Credenciais inválidas/e-mail não confirmado são tentativas comuns, não falhas
+// operacionais; os demais casos ficam registrados para diagnóstico.
+const UNLOGGED_CATEGORIES: ReadonlySet<LoginErrorCategory> = new Set(["invalid_credentials", "email_not_confirmed"]);
+
 export default function Login() {
   const navigate = useNavigate();
-  const { signIn, isAuthenticated, isAssistant, userRole, authError, isLoading: isAuthLoading } = useAuthContext();
+  const { signIn, isAuthenticated, userRole, authError, isLoading: isAuthLoading } = useAuthContext();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated && userRole && !isAuthLoading) {
-      const redirectPath = isAssistant ? "/sessao/nova" : "/dashboard";
-      navigate(redirectPath, { replace: true });
+      navigate(getHomeRoute(userRole), { replace: true });
     }
-  }, [isAuthenticated, isAssistant, userRole, isAuthLoading, navigate]);
+  }, [isAuthenticated, userRole, isAuthLoading, navigate]);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsLoading(true);
-
+  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSubmitting(true);
     let error: Error | null;
     try {
-      ({ error } = await signIn(email, password));
+      ({ error } = await signIn(email.trim(), password));
     } catch (cause) {
       error = cause instanceof Error ? cause : new Error(String(cause));
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
+    if (!error) return;
 
-    if (error) {
-      const feedback = getLoginErrorFeedback(error);
-      toast.error(feedback.message);
-
-      // Credenciais inválidas são uma tentativa de login comum, não uma falha
-      // operacional. Os demais casos ficam registrados para diagnóstico.
-      if (feedback.category !== "invalid_credentials") {
-        console.info("[Login] Diagnóstico da falha de autenticação", {
-          category: feedback.category,
-          error,
-        });
-        void logApplicationError(error, {
-          location: "Login.handleLogin",
-          operation: "auth",
-          entity: "authentication",
-          metadata: { category: feedback.category },
-        });
-      }
+    const feedback = getLoginErrorFeedback(error);
+    toast.error(feedback.message);
+    if (!UNLOGGED_CATEGORIES.has(feedback.category)) {
+      void logApplicationError(error, {
+        location: "Login.handleLogin",
+        operation: "auth",
+        entity: "authentication",
+        metadata: { category: feedback.category },
+      });
     }
   };
 
   if (isAuthenticated && authError && !isAuthLoading) return <AccessError />;
 
   // Aguarda a sessão e o perfil, inclusive ao restaurar uma sessão existente.
-  if (isLoading || isAuthLoading || isAuthenticated) {
+  if (isSubmitting || isAuthLoading || isAuthenticated) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-4 bg-background text-center">
         <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/20">
@@ -190,8 +184,8 @@ export default function Login() {
               </div>
             </div>
             <div className="pt-6">
-              <Button type="submit" className="h-12 w-full text-lg font-bold" disabled={isLoading}>
-                {isLoading ? "Entrando..." : "Entrar"}
+              <Button type="submit" className="h-12 w-full text-lg font-bold" disabled={isSubmitting}>
+                {isSubmitting ? "Entrando..." : "Entrar"}
               </Button>
             </div>
           </form>

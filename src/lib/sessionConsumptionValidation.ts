@@ -1,7 +1,7 @@
-import { isStockQuantity } from "@/lib/stockQuantity";
-import type { ConsumptionSource } from "@/types/database";
+import { isStockQuantity, sumStockQuantities } from "@/lib/stockQuantity";
+import type { ConsumptionSource, Vegetal } from "@/types/database";
 
-interface ConsumptionValidationInput {
+export interface ConsumptionValidationInput {
   sources: ConsumptionSource[];
   isUnited: boolean;
   totalConsumed: number;
@@ -28,4 +28,29 @@ export function getConsumptionValidationError(
     : "Informe consumo positivo com até duas casas decimais.";
   if (totalConsumed > totalAvailable) return isSubmit ? "Consumo maior que disponível" : "Consumo maior que saldo disponível.";
   return null;
+}
+
+/**
+ * Compara as quantidades escolhidas com o saldo atual de cada lote. Um lote
+ * que perdeu saldo desde a seleção (ou sumiu da lista) só contribui até o que
+ * ainda existe, e a divergência é sinalizada para o usuário reselecioná-lo.
+ */
+export function getConsumptionAvailability(
+  sources: ConsumptionSource[],
+  vegetais: Pick<Vegetal, "id" | "quantity">[],
+) {
+  const quantityById = new Map(vegetais.map((vegetal) => [vegetal.id, Number(vegetal.quantity)]));
+  const sourceQuantities = sources.map((source) => ({
+    source,
+    currentQuantity: quantityById.get(source.vegetal_id) ?? 0,
+  }));
+
+  return {
+    totalAvailable: sumStockQuantities(sourceQuantities.map(({ source, currentQuantity }) =>
+      Math.min(source.amount_available, currentQuantity),
+    )),
+    hasSourceQuantityMismatch: sourceQuantities.some(({ source, currentQuantity }) =>
+      source.amount_available > currentQuantity,
+    ),
+  };
 }

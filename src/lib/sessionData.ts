@@ -24,9 +24,22 @@ export function formatTransmissionObservation(segundoDirigente: string | null, o
   return [prefix, observation].filter(Boolean).join("\n");
 }
 
+export const EMPTY_PARTICIPANTS: Readonly<Participants> = {
+  mestres: 0,
+  conselheiros: 0,
+  instrutivo: 0,
+  socios: 0,
+  visitantes: 0,
+  jovens: 0,
+};
+
+export function sumParticipants(participants: Participants): number {
+  return Object.values(participants).reduce((sum, count) => sum + count, 0);
+}
+
 export function areParticipantsValid(participants: Participants): boolean {
   const counts = Object.values(participants);
-  const total = counts.reduce((sum, count) => sum + count, 0);
+  const total = sumParticipants(participants);
   return counts.every(count => Number.isInteger(count) && count >= 0 && count <= MAX_PARTICIPANTS)
     && total > 0 && total <= MAX_PARTICIPANTS;
 }

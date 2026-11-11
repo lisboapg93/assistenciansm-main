@@ -1,9 +1,8 @@
 import { useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { useDeleteMember, useMembers, useSaveMember } from "@/hooks/useMembers";
+import { useMembers, type Member } from "@/hooks/useMembers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Table,
   TableBody,
@@ -12,161 +11,34 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { toast } from "sonner";
 import { Users, Plus, Pencil, Trash2, Search, UserCheck } from "lucide-react";
-import { getErrorMessage, logApplicationError } from "@/lib/errorLogging";
-import { getMemberDisplayName, getMemberIdentityKey, normalizeName, usesDegreePrefix } from "@/lib/memberDisplay";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { filterMembersBySearch, getMemberDisplayName } from "@/lib/memberDisplay";
 import { QueryError } from "@/components/QueryError";
+import { MemberFormDialog } from "@/components/member/MemberFormDialog";
+import { DeleteMemberDialog } from "@/components/member/DeleteMemberDialog";
 
-const GRAU_OPTIONS = [
-  "Quadro de Mestre",
-  "Corpo do Conselho",
-  "Corpo Instrutivo",
-  "Quadro de Sócios",
-] as const;
+const TABLE_COLUMN_COUNT = 4;
 
-type Grau = typeof GRAU_OPTIONS[number] | null;
-
-interface MemberForm {
-  name: string;
-  is_socio_nucleo: boolean;
-  grau: Grau;
+interface MemberFormState {
+  open: boolean;
+  member: Member | null;
+  /** Muda a cada abertura para reiniciar o formulário sem perder a animação de fechamento. */
+  key: number;
 }
 
 export default function Membros() {
   const { data: members, isLoading, isError, error: queryError, refetch } = useMembers();
-  const saveMember = useSaveMember();
-  const deleteMember = useDeleteMember();
-  
+
   const [search, setSearch] = useState("");
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [editingMember, setEditingMember] = useState<{ id: string; grau: Grau } | null>(null);
-  const [deletingMember, setDeletingMember] = useState<{ id: string; name: string } | null>(null);
-  const [form, setForm] = useState<MemberForm>({ name: "", is_socio_nucleo: false, grau: null });
-  const [isSaving, setIsSaving] = useState(false);
+  const [memberForm, setMemberForm] = useState<MemberFormState>({ open: false, member: null, key: 0 });
+  const [deletingMember, setDeletingMember] = useState<Member | null>(null);
 
-  const filteredMembers = members?.filter((member) => {
-    const normalizedSearch = normalizeName(search);
-    return normalizeName(member.name).includes(normalizedSearch)
-      || normalizeName(getMemberDisplayName(member)).includes(normalizedSearch);
-  });
-
+  const filteredMembers = filterMembersBySearch(members, search);
   const socioCount = members?.filter((m) => m.is_socio_nucleo).length ?? 0;
 
-  const openCreateDialog = () => {
-    setEditingMember(null);
-    setForm({ name: "", is_socio_nucleo: false, grau: null });
-    setIsDialogOpen(true);
-  };
-
-  const openEditDialog = (member: { id: string; name: string; is_socio_nucleo: boolean; grau: string | null }) => {
-    setEditingMember({
-      id: member.id,
-      grau: member.grau as Grau,
-    });
-    setForm({ name: member.name, is_socio_nucleo: member.is_socio_nucleo, grau: member.grau as Grau });
-    setIsDialogOpen(true);
-  };
-
-  const openDeleteDialog = (member: { id: string; name: string }) => {
-    setDeletingMember(member);
-    setIsDeleteDialogOpen(true);
-  };
-
-  const handleSave = async () => {
-    if (isSaving) return;
-    const trimmedName = form.name.trim();
-    if (!trimmedName) {
-      toast.error("Nome é obrigatório");
-      return;
-    }
-
-    const comparableNewDisplayName = getMemberIdentityKey(
-      getMemberDisplayName({ name: trimmedName, grau: form.grau }),
-    );
-    const duplicateMember = members?.find((member) =>
-      member.id !== editingMember?.id
-      && getMemberIdentityKey(getMemberDisplayName(member)) === comparableNewDisplayName,
-    );
-
-    if (duplicateMember) {
-      toast.error(`Já existe um membro cadastrado como "${getMemberDisplayName(duplicateMember)}"`);
-      return;
-    }
-
-    const memberData = {
-      name: trimmedName,
-      is_socio_nucleo: form.is_socio_nucleo,
-      grau: form.grau,
-    };
-
-    setIsSaving(true);
-    try {
-      await saveMember.mutateAsync({ id: editingMember?.id, member: memberData });
-      toast.success(editingMember ? "Membro atualizado com sucesso" : "Membro adicionado com sucesso");
-      setIsDialogOpen(false);
-    } catch (error: unknown) {
-      await logApplicationError(error, {
-        location: editingMember ? "Membros.update" : "Membros.create",
-        operation: editingMember ? "update" : "create",
-        entity: "members",
-        entityId: editingMember?.id,
-        inputPayload: editingMember
-          ? { id: editingMember.id, updates: memberData }
-          : { member: memberData },
-      });
-      toast.error(getErrorMessage(error) || "Erro ao salvar membro");
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!deletingMember) return;
-
-    try {
-      await deleteMember.mutateAsync(deletingMember.id);
-      toast.success("Membro excluído com sucesso");
-    } catch (error: unknown) {
-      await logApplicationError(error, {
-        location: "Membros.delete",
-        operation: "delete",
-        entity: "members",
-        entityId: deletingMember.id,
-        inputPayload: { id: deletingMember.id, name: deletingMember.name },
-      });
-      toast.error(getErrorMessage(error) || "Erro ao excluir membro");
-    } finally {
-      setIsDeleteDialogOpen(false);
-      setDeletingMember(null);
-    }
-  };
+  const openMemberForm = (member: Member | null) =>
+    setMemberForm((prev) => ({ open: true, member, key: prev.key + 1 }));
+  const closeMemberForm = () => setMemberForm((prev) => ({ ...prev, open: false }));
 
   if (isError && !members) return <MainLayout><QueryError error={queryError} onRetry={() => void refetch()} /></MainLayout>;
 
@@ -184,7 +56,7 @@ export default function Membros() {
               Gerencie os membros cadastrados no sistema
             </p>
           </div>
-          <Button onClick={openCreateDialog} className="gap-2">
+          <Button onClick={() => openMemberForm(null)} className="gap-2">
             <Plus className="h-4 w-4" />
             Novo Membro
           </Button>
@@ -213,6 +85,7 @@ export default function Membros() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Buscar membros..."
+            aria-label="Buscar membros"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -233,7 +106,7 @@ export default function Membros() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center py-8">
+                  <TableCell colSpan={TABLE_COLUMN_COUNT} className="text-center py-8">
                     <div className="flex items-center justify-center">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
                     </div>
@@ -241,140 +114,66 @@ export default function Membros() {
                 </TableRow>
               ) : filteredMembers?.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={TABLE_COLUMN_COUNT} className="text-center py-8 text-muted-foreground">
                     {search ? "Nenhum membro encontrado" : "Nenhum membro cadastrado"}
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredMembers?.map((member) => (
-                  <TableRow key={member.id}>
-                    <TableCell className="font-medium">{getMemberDisplayName(member)}</TableCell>
-                    <TableCell className="hidden sm:table-cell text-muted-foreground">
-                      {member.grau || "—"}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {member.is_socio_nucleo && (
-                        <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
-                          <UserCheck className="h-3 w-3" />
-                          Sócio
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center justify-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => openEditDialog(member)}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => openDeleteDialog(member)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
+                filteredMembers?.map((member) => {
+                  const displayName = getMemberDisplayName(member);
+                  return (
+                    <TableRow key={member.id}>
+                      <TableCell className="font-medium">{displayName}</TableCell>
+                      <TableCell className="hidden sm:table-cell text-muted-foreground">
+                        {member.grau || "—"}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {member.is_socio_nucleo && (
+                          <span className="inline-flex items-center gap-1 text-xs bg-primary/10 text-primary px-2 py-1 rounded-full">
+                            <UserCheck className="h-3 w-3" />
+                            Sócio
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Editar ${displayName}`}
+                            onClick={() => openMemberForm(member)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Excluir ${displayName}`}
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => setDeletingMember(member)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
         </div>
       </div>
 
-      {/* Create/Edit Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {editingMember ? "Editar Membro" : "Novo Membro"}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Nome</Label>
-              <Input
-                id="name"
-                value={form.name}
-                onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="Digite o nome do membro"
-              />
-              {usesDegreePrefix(form.grau) && (
-                <p className="text-xs text-muted-foreground">
-                  Será exibido como {getMemberDisplayName({ name: form.name.trim() || "Nome", grau: form.grau })}.
-                </p>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="grau">Grau</Label>
-              <Select
-                value={form.grau || "__none__"}
-                onValueChange={(value) =>
-                  setForm((prev) => ({ ...prev, grau: value === "__none__" ? null : value as Grau }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o grau" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">Nenhum</SelectItem>
-                  {GRAU_OPTIONS.map((grau) => (
-                    <SelectItem key={grau} value={grau}>
-                      {grau}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="is_socio_nucleo"
-                checked={form.is_socio_nucleo}
-                onCheckedChange={(checked) =>
-                  setForm((prev) => ({ ...prev, is_socio_nucleo: checked === true }))
-                }
-              />
-              <Label htmlFor="is_socio_nucleo" className="cursor-pointer">
-                Sócio do Núcleo
-              </Label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={handleSave} disabled={isSaving}>
-              {isSaving ? "Salvando..." : "Salvar"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <MemberFormDialog
+        key={memberForm.key}
+        open={memberForm.open}
+        onOpenChange={(open) => !open && closeMemberForm()}
+        member={memberForm.member}
+        members={members}
+      />
 
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
-            <AlertDialogDescription>
-              Tem certeza que deseja excluir o membro "{deletingMember?.name}"? Esta ação não pode ser desfeita.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteMemberDialog member={deletingMember} onClose={() => setDeletingMember(null)} />
     </MainLayout>
   );
 }

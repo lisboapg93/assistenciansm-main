@@ -1,4 +1,3 @@
-import type { Dispatch, SetStateAction } from "react";
 import { Search, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -32,8 +31,17 @@ const MONTHS = [
   { value: "11", label: "Dezembro" },
 ];
 
+// Primeiro ano com sessões registradas no sistema.
+const FIRST_HISTORY_YEAR = 2024;
 const currentYear = Number(todayBrazilianIsoDate().slice(0, 4));
-const YEARS = Array.from({ length: Math.max(1, currentYear - 2024 + 1) }, (_, i) => currentYear - i);
+const YEARS = Array.from(
+  { length: Math.max(1, currentYear - FIRST_HISTORY_YEAR + 1) },
+  (_, i) => currentYear - i,
+);
+
+// Valores sentinela dos selects (o Radix Select não aceita valor vazio).
+const NO_PERIOD = "none";
+const ALL = "all";
 
 const LAST_MONTHS_OPTIONS = [
   { value: "3", label: "Últimos 3 meses" },
@@ -44,10 +52,15 @@ const LAST_MONTHS_OPTIONS = [
 
 interface HistoryFiltersProps {
   filters: HistoryFiltersValue;
-  setFilters: Dispatch<SetStateAction<HistoryFiltersValue>>;
+  onChange: (filters: HistoryFiltersValue) => void;
 }
 
-export function HistoryFilters({ filters, setFilters }: HistoryFiltersProps) {
+export function HistoryFilters({ filters, onChange }: HistoryFiltersProps) {
+  const update = (changes: Partial<HistoryFiltersValue>) => onChange({ ...filters, ...changes });
+  const toggleType = (type: string, selected: boolean) => update({
+    types: selected ? [...filters.types, type] : filters.types.filter((current) => current !== type),
+  });
+
   return (
     <Card>
       <CardContent className="p-4">
@@ -57,20 +70,17 @@ export function HistoryFilters({ filters, setFilters }: HistoryFiltersProps) {
             <Input
               placeholder="Buscar..."
               value={filters.search}
-              onChange={(e) =>
-                setFilters({ ...filters, search: e.target.value })
-              }
+              onChange={(e) => update({ search: e.target.value })}
               className="pl-10"
             />
           </div>
 
           {/* Período (últimos meses) */}
           <Select
-            value={filters.lastMonths?.toString() || "none"}
+            value={filters.lastMonths?.toString() || NO_PERIOD}
             onValueChange={(value) =>
-              setFilters({
-                ...filters,
-                lastMonths: value === "none" ? undefined : parseInt(value),
+              update({
+                lastMonths: value === NO_PERIOD ? undefined : Number(value),
                 year: undefined,
                 month: undefined,
               })
@@ -80,7 +90,7 @@ export function HistoryFilters({ filters, setFilters }: HistoryFiltersProps) {
               <SelectValue placeholder="Período" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="none">Por ano/mês</SelectItem>
+              <SelectItem value={NO_PERIOD}>Por ano/mês</SelectItem>
               {LAST_MONTHS_OPTIONS.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
@@ -91,12 +101,11 @@ export function HistoryFilters({ filters, setFilters }: HistoryFiltersProps) {
 
           {/* Ano - desabilitado quando período está selecionado */}
           <Select
-            value={filters.year?.toString() || "all"}
+            value={filters.year?.toString() || ALL}
             onValueChange={(value) =>
-              setFilters({
-                ...filters,
-                year: value === "all" ? undefined : parseInt(value),
-                month: value === "all" ? undefined : filters.month,
+              update({
+                year: value === ALL ? undefined : Number(value),
+                month: value === ALL ? undefined : filters.month,
               })
             }
             disabled={!!filters.lastMonths}
@@ -105,7 +114,7 @@ export function HistoryFilters({ filters, setFilters }: HistoryFiltersProps) {
               <SelectValue placeholder="Ano" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos os anos</SelectItem>
+              <SelectItem value={ALL}>Todos os anos</SelectItem>
               {YEARS.map((year) => (
                 <SelectItem key={year} value={year.toString()}>
                   {year}
@@ -116,13 +125,8 @@ export function HistoryFilters({ filters, setFilters }: HistoryFiltersProps) {
 
           {/* Mês exige um ano explícito e não se aplica ao período relativo */}
           <Select
-            value={filters.month?.toString() || "all"}
-            onValueChange={(value) =>
-              setFilters({
-                ...filters,
-                month: value === "all" ? undefined : parseInt(value),
-              })
-            }
+            value={filters.month?.toString() || ALL}
+            onValueChange={(value) => update({ month: value === ALL ? undefined : Number(value) })}
             disabled={!!filters.lastMonths || filters.year === undefined}
           >
             <SelectTrigger
@@ -132,7 +136,7 @@ export function HistoryFilters({ filters, setFilters }: HistoryFiltersProps) {
               <SelectValue placeholder="Mês" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Todos os meses</SelectItem>
+              <SelectItem value={ALL}>Todos os meses</SelectItem>
               {MONTHS.map((month) => (
                 <SelectItem key={month.value} value={month.value}>
                   {month.label}
@@ -161,7 +165,7 @@ export function HistoryFilters({ filters, setFilters }: HistoryFiltersProps) {
                   variant="ghost"
                   size="sm"
                   className="w-full justify-start text-muted-foreground"
-                  onClick={() => setFilters({ ...filters, types: [] })}
+                  onClick={() => update({ types: [] })}
                 >
                   Limpar seleção
                 </Button>
@@ -173,19 +177,7 @@ export function HistoryFilters({ filters, setFilters }: HistoryFiltersProps) {
                     >
                       <Checkbox
                         checked={filters.types.includes(type)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setFilters({
-                              ...filters,
-                              types: [...filters.types, type],
-                            });
-                          } else {
-                            setFilters({
-                              ...filters,
-                              types: filters.types.filter((t) => t !== type),
-                            });
-                          }
-                        }}
+                        onCheckedChange={(checked) => toggleType(type, checked === true)}
                       />
                       <span className="text-sm">{type}</span>
                     </label>

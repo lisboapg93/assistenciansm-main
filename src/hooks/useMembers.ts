@@ -1,33 +1,21 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { logAndThrow } from "@/lib/errorLogging";
+import type { Database } from "@/integrations/supabase/types";
+import { getErrorMessage, logAndThrow, type ErrorLogContext } from "@/lib/errorLogging";
 
-export interface Member {
-  id: string;
-  name: string;
-  is_socio_nucleo: boolean;
-  grau: string | null;
-  created_at: string;
-}
+export type Member = Database["public"]["Tables"]["members"]["Row"];
 
 export type MemberInput = Pick<Member, "name" | "grau" | "is_socio_nucleo">;
 
+export interface SaveMemberInput {
+  /** Ausente ao cadastrar; presente ao editar. */
+  id?: string;
+  member: MemberInput;
+}
+
 const MEMBERS_PAGE_SIZE = 500;
 const MEMBERS_QUERY_KEY = ["members"] as const;
-
-async function findMemberByName(name: string, location: string) {
-  const { data, error } = await supabase
-    .from("members")
-    .select("id")
-    .eq("name", name)
-    .maybeSingle();
-
-  if (error) {
-    return logAndThrow(error, { location, operation: "read", entity: "members" });
-  }
-
-  return data;
-}
 
 export function useMembers() {
   return useQuery({
@@ -64,58 +52,54 @@ export function useMembers() {
   });
 }
 
-export function useAddMember() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (name: string) => {
-      const trimmedName = name.trim();
-      if (!trimmedName) return null;
-
-      const existing = await findMemberByName(trimmedName, "useMembers.checkExistingBeforeCreate");
-
-      if (existing) return existing;
-
-      const { data, error } = await supabase
-        .from("members")
-        .insert({ name: trimmedName })
-        .select()
-        .single();
-
-      if (error) {
-        // Ignore unique constraint violations
-        if (error.code === "23505") return null;
-        return logAndThrow(error, {
-          location: "useMembers.create",
-          operation: "create",
-          entity: "members",
-          inputPayload: { name: trimmedName },
-        });
-      }
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: MEMBERS_QUERY_KEY });
-    },
-  });
+function getSaveMemberLogContext({ id, member }: SaveMemberInput): ErrorLogContext {
+  return id
+    ? {
+      location: "Membros.update",
+      operation: "update",
+      entity: "members",
+      entityId: id,
+      inputPayload: { id, updates: member },
+    }
+    : {
+      location: "Membros.create",
+      operation: "create",
+      entity: "members",
+      inputPayload: { member },
+    };
 }
 
 export function useSaveMember() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, member }: { id?: string; member: MemberInput }) => {
+    mutationFn: async (input: SaveMemberInput) => {
+      const { id, member } = input;
+      const logContext = getSaveMemberLogContext(input);
+
       if (id) {
         const { data, error } = await supabase.from("members")
           .update(member).eq("id", id).select("id").maybeSingle();
-        if (error) throw error;
-        if (!data) throw new Error("Membro não encontrado ou sem permissão para atualizar.");
-      } else {
-        const { error } = await supabase.from("members").insert(member);
-        if (error) throw error;
+        if (error) return logAndThrow(error, logContext);
+        if (!data) {
+          return logAndThrow(
+            new Error("O registro do membro não foi encontrado ou você não tem permissão para alterá-lo."),
+            logContext,
+          );
+        }
+        return;
       }
+
+      const { error } = await supabase.from("members").insert(member);
+      if (error) return logAndThrow(error, logContext);
     },
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: MEMBERS_QUERY_KEY }); },
+    onSuccess: (_data, { id }) => {
+      void queryClient.invalidateQueries({ queryKey: MEMBERS_QUERY_KEY });
+      toast.success(id ? "Membro atualizado com sucesso" : "Membro adicionado com sucesso");
+    },
+    onError: (error) => {
+      toast.error(getErrorMessage(error) || "Erro ao salvar membro");
+    },
   });
 }
 
@@ -123,32 +107,32 @@ export function useDeleteMember() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { data, error } = await supabase.from("members")
-        .delete().eq("id", id).select("id").maybeSingle();
-      if (error) throw error;
-      if (!data) throw new Error("Membro já excluído ou sem permissão para excluir.");
-    },
-    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: MEMBERS_QUERY_KEY }); },
-  });
-}
-
-// Helper function to add member if not exists (used in form submissions)
-export async function addMemberIfNotExists(name: string) {
-  const trimmedName = name.trim();
-  if (!trimmedName) return;
-
-  const existing = await findMemberByName(trimmedName, "addMemberIfNotExists.checkExisting");
-
-  if (!existing) {
-    const { error } = await supabase.from("members").insert({ name: trimmedName });
-    if (error && error.code !== "23505") {
-      return logAndThrow(error, {
-        location: "addMemberIfNotExists.create",
-        operation: "create",
+    mutationFn: async (member: Pick<Member, "id" | "name">) => {
+      const logContext: ErrorLogContext = {
+        location: "Membros.delete",
+        operation: "delete",
         entity: "members",
-        inputPayload: { name: trimmedName },
-      });
-    }
-  }
+        entityId: member.id,
+        inputPayload: { id: member.id, name: member.name },
+      };
+      const { data, error } = await supabase.from("members")
+        .delete().eq("id", member.id).select("id").maybeSingle();
+      if (error) return logAndThrow(error, logContext);
+      if (!data) {
+        return logAndThrow(
+          new Error("O registro do membro já foi excluído ou você não tem permissão para excluí-lo."),
+          logContext,
+        );
+      }
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: MEMBERS_QUERY_KEY });
+      toast.success("Membro excluído com sucesso");
+    },
+    onError: (error) => {
+      // Se outra pessoa já excluiu o membro, a lista precisa refletir isso.
+      void queryClient.invalidateQueries({ queryKey: MEMBERS_QUERY_KEY });
+      toast.error(getErrorMessage(error) || "Erro ao excluir membro");
+    },
+  });
 }

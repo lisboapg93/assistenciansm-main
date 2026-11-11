@@ -3,36 +3,55 @@ import { supabase } from "@/integrations/supabase/client";
 import { Vegetal } from "@/types/database";
 import { toast } from "sonner";
 import { getErrorMessage, logAndThrow } from "@/lib/errorLogging";
+import type { VegetalInput } from "@/lib/stockEntry";
+import type { ManualStockOperation } from "@/lib/stockMovements";
 
-type InventoryRpcError = { code?: string; message: string };
-interface StockForecast {
+export type { VegetalInput } from "@/lib/stockEntry";
+export type { ManualStockOperation } from "@/lib/stockMovements";
+
+export interface StockForecast {
   sessions_remaining: number;
   months_remaining: number;
 }
-type StockForecastRpc = (
-  functionName: "get_stock_forecast",
-) => Promise<{ data: StockForecast | null; error: InventoryRpcError | null }>;
+
+export interface UpdateVegetalStockInput {
+  id: string;
+  /** Saída recebe a quantidade retirada; Ajuste recebe o novo saldo. */
+  quantity: number;
+  movementType: ManualStockOperation;
+  movementDetails?: string;
+  expectedQuantity: number;
+}
+
+type InventoryRpcError = { code?: string; message: string };
+type RpcResult<T> = Promise<{ data: T | null; error: InventoryRpcError | null }>;
+
+// As funções abaixo foram criadas pelas migrations de estoque; os casts ficam
+// locais até que os tipos do Supabase sejam regenerados a partir do schema.
+type StockForecastRpc = (functionName: "get_stock_forecast") => RpcResult<StockForecast>;
 type CreateVegetalRpc = (
   functionName: "create_vegetal_with_movement",
-  args: { p_vegetal: Omit<Vegetal, "id" | "created_at" | "updated_at" | "is_archived"> },
-) => Promise<{ data: Vegetal | null; error: InventoryRpcError | null }>;
+  args: { p_vegetal: VegetalInput },
+) => RpcResult<Vegetal>;
 type ChangeVegetalStockRpc = (
   functionName: "change_vegetal_stock",
   args: {
     p_vegetal_id: string;
-    p_operation: "Saída" | "Ajuste";
+    p_operation: ManualStockOperation;
     p_quantity: number;
     p_expected_quantity: number;
     p_details: string | null;
   },
-) => Promise<{ data: Vegetal | null; error: InventoryRpcError | null }>;
+) => RpcResult<Vegetal>;
 
 const VEGETAIS_PAGE_SIZE = 1000;
 const VEGETAIS_QUERY_KEY = ["vegetais"] as const;
-const VEGETAL_QUERY_KEY = ["vegetal"] as const;
+const STOCK_MOVEMENTS_QUERY_KEY = ["stock_movements"] as const;
+const STOCK_FORECAST_QUERY_KEY = ["stock_forecast"] as const;
+const MEMBERS_QUERY_KEY = ["members"] as const;
 
 function invalidateStockQueries(queryClient: QueryClient) {
-  for (const queryKey of [VEGETAIS_QUERY_KEY, ["stock_movements"], ["stock_forecast"]]) {
+  for (const queryKey of [VEGETAIS_QUERY_KEY, STOCK_MOVEMENTS_QUERY_KEY, STOCK_FORECAST_QUERY_KEY]) {
     void queryClient.invalidateQueries({ queryKey });
   }
 }
@@ -81,33 +100,9 @@ export function useVegetais(showArchived = false) {
   });
 }
 
-export function useVegetal(id: string | undefined) {
-  return useQuery({
-    queryKey: [...VEGETAL_QUERY_KEY, id],
-    queryFn: async () => {
-      if (!id) return null;
-      const { data, error } = await supabase
-        .from("vegetal")
-        .select("*")
-        .eq("id", id)
-        .maybeSingle();
-      if (error) {
-        return logAndThrow(error, {
-          location: "useVegetais.getById",
-          operation: "read",
-          entity: "vegetal",
-          entityId: id,
-        });
-      }
-      return data as Vegetal | null;
-    },
-    enabled: !!id,
-  });
-}
-
 export function useStockForecast(enabled: boolean) {
   return useQuery({
-    queryKey: ["stock_forecast"],
+    queryKey: STOCK_FORECAST_QUERY_KEY,
     enabled,
     queryFn: async () => {
       const rpc = supabase.rpc.bind(supabase) as unknown as StockForecastRpc;
@@ -128,9 +123,7 @@ export function useCreateVegetal() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (vegetal: Omit<Vegetal, "id" | "created_at" | "updated_at" | "is_archived">) => {
-      // Added by the inventory migration; keep the cast local until Supabase
-      // types can be regenerated from the deployed schema.
+    mutationFn: async (vegetal: VegetalInput) => {
       const rpc = supabase.rpc.bind(supabase) as unknown as CreateVegetalRpc;
       const { data, error } = await rpc("create_vegetal_with_movement", {
         p_vegetal: vegetal,
@@ -149,7 +142,8 @@ export function useCreateVegetal() {
     },
     onSuccess: () => {
       invalidateStockQueries(queryClient);
-      void queryClient.invalidateQueries({ queryKey: ["members"] });
+      // O lote pode cadastrar automaticamente mestre, auxiliar e responsáveis.
+      void queryClient.invalidateQueries({ queryKey: MEMBERS_QUERY_KEY });
       toast.success("Vegetal cadastrado com sucesso!");
     },
     onError: (error) => {
@@ -162,24 +156,12 @@ export function useUpdateVegetal() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({
-      id,
-      quantity,
-      movementType,
-      movementDetails,
-      expectedQuantity,
-    }: {
-      id: string;
-      quantity: number;
-      movementType: "Saída" | "Ajuste";
-      movementDetails?: string;
-      expectedQuantity: number;
-    }) => {
+    mutationFn: async (input: UpdateVegetalStockInput) => {
+      const { id, quantity, movementType, movementDetails, expectedQuantity } = input;
       const rpc = supabase.rpc.bind(supabase) as unknown as ChangeVegetalStockRpc;
       const { data, error } = await rpc("change_vegetal_stock", {
         p_vegetal_id: id,
         p_operation: movementType,
-        // Saída recebe quantidade retirada; Ajuste recebe o novo saldo.
         p_quantity: quantity,
         p_expected_quantity: expectedQuantity,
         p_details: movementDetails ?? null,
@@ -191,25 +173,19 @@ export function useUpdateVegetal() {
           operation: "update",
           entity: "vegetal",
           entityId: id,
-          inputPayload: { id, quantity, movementType, movementDetails, expectedQuantity },
+          inputPayload: input,
         });
       }
       return data;
     },
     onSuccess: () => {
       invalidateStockQueries(queryClient);
-      void queryClient.invalidateQueries({ queryKey: VEGETAL_QUERY_KEY });
       toast.success("Vegetal atualizado!");
     },
     onError: (error) => {
+      // Um conflito de saldo (alteração concorrente) exige recarregar o lote.
       void queryClient.invalidateQueries({ queryKey: VEGETAIS_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: VEGETAL_QUERY_KEY });
       toast.error("Erro ao atualizar: " + getErrorMessage(error));
     },
   });
-}
-
-export function useTotalStock() {
-  const { data: vegetais } = useVegetais();
-  return vegetais?.reduce((sum, v) => sum + Number(v.quantity), 0) || 0;
 }

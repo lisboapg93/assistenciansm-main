@@ -63,9 +63,11 @@ type AuditLogsRpc = (
   },
 ) => Promise<{ data: AuditLogRow[] | null; error: { message: string } | null }>;
 
+export const AUDIT_LOGS_QUERY_KEY = ["audit-logs"] as const;
+
 export function useAuditLogs(filters: AuditLogFilters, page: number, pageSize: number) {
   return useQuery({
-    queryKey: ["audit-logs", filters, page, pageSize],
+    queryKey: [...AUDIT_LOGS_QUERY_KEY, filters, page, pageSize],
     queryFn: async (): Promise<AuditLogPage> => {
       const auditLogsRpc = supabase.rpc.bind(supabase) as unknown as AuditLogsRpc;
       const { data, error } = await auditLogsRpc("list_audit_logs", {
@@ -102,7 +104,8 @@ export function useAuditLogs(filters: AuditLogFilters, page: number, pageSize: n
           relatedSessionId: row.related_session_id,
           occurredAt: row.occurred_at,
         })),
-        total: rows[0]?.total_count || 0,
+        // A RPC repete o total filtrado em todas as linhas da página.
+        total: Number(rows[0]?.total_count) || 0,
       };
     },
   });

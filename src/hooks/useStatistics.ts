@@ -5,6 +5,7 @@ import type { StatisticsFilters, StatisticsResult } from "@/lib/statistics";
 import type { MemberDisplayData } from "@/lib/memberDisplay";
 import type { Session } from "@/types/database";
 
+/** Estatísticas das sessões informadas, usando o estoque atual dos lotes ativos. */
 export function useStatistics(
   sessions: Session[] | undefined,
   filters?: StatisticsFilters,

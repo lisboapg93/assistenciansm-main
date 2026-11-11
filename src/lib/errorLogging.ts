@@ -11,11 +11,17 @@ type ErrorLogMetadataValue = string | number | boolean | null;
 type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
 
-const MUTATING_OPERATIONS = new Set(["create", "update", "delete", "import"]);
+type ErrorLogOperation = "create" | "read" | "update" | "delete" | "import" | "auth";
+type MutatingOperation = Extract<ErrorLogOperation, "create" | "update" | "delete" | "import">;
+
+const MUTATING_OPERATIONS: ReadonlySet<ErrorLogOperation> = new Set<MutatingOperation>(["create", "update", "delete", "import"]);
+
+const isMutatingOperation = (operation: ErrorLogOperation | undefined): operation is MutatingOperation =>
+  operation !== undefined && MUTATING_OPERATIONS.has(operation);
 
 export interface ErrorLogContext {
   location: string;
-  operation?: "create" | "read" | "update" | "delete" | "import" | "auth";
+  operation?: ErrorLogOperation;
   entity?: string;
   entityId?: string;
   metadata?: Record<string, ErrorLogMetadataValue>;
@@ -102,7 +108,7 @@ export function getErrorMessage(error: unknown): string {
   if (normalizedMessage.includes("insufficient") || normalizedMessage.includes("not enough")) {
     return "Estoque insuficiente para concluir a operação.";
   }
-  if (normalizedMessage.includes("pgrst202") || normalizedMessage.includes("function") && normalizedMessage.includes("does not exist")) {
+  if (normalizedMessage.includes("pgrst202") || (normalizedMessage.includes("function") && normalizedMessage.includes("does not exist"))) {
     return "Uma função necessária do sistema não está disponível no momento.";
   }
   if (normalizedMessage.includes("pgrst116") || normalizedMessage.includes("0 rows")) {
@@ -150,12 +156,13 @@ type OperationFailureLogRpc = (
     p_entity_id: string | null;
     p_input_payload: JsonObject;
     p_metadata: JsonObject;
-    p_operation: "create" | "update" | "delete" | "import";
+    p_operation: MutatingOperation;
   },
 ) => Promise<{ data: string | null; error: { message: string } | null }>;
 
 async function logOperationFailure(error: unknown, context: ErrorLogContext, metadata: JsonObject): Promise<void> {
-  if (!context.operation || !MUTATING_OPERATIONS.has(context.operation)) return;
+  const { operation } = context;
+  if (!isMutatingOperation(operation)) return;
 
   const inputPayload = sanitizePayload(context.inputPayload ?? {});
   const rpc = supabase.rpc.bind(supabase) as unknown as OperationFailureLogRpc;
@@ -171,7 +178,7 @@ async function logOperationFailure(error: unknown, context: ErrorLogContext, met
         ? inputPayload as JsonObject
         : {},
       p_metadata: metadata,
-      p_operation: context.operation as "create" | "update" | "delete" | "import",
+      p_operation: operation,
     });
 
     if (loggingError) {

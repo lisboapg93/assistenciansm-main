@@ -1,13 +1,8 @@
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { brazilianDateBoundaryIso, brazilianIsoDate, parseDbDateToLocal } from "@/lib/date";
-import type { MovementType, StockMovement } from "@/types/database";
-
-const movementEffect = (type: MovementType, quantity: number) => {
-  if (type === "Entrada" || type === "Saldo") return Math.abs(quantity);
-  if (type === "Ajuste") return -quantity;
-  return -Math.abs(quantity);
-};
+import { getMovementEffect } from "@/lib/stockMovements";
+import type { StockMovement } from "@/types/database";
 
 export function getMovementsByType(
   movements: StockMovement[] | undefined,
@@ -54,7 +49,7 @@ export function getStockEvolution(
   const yearStart = new Date(brazilianDateBoundaryIso(`${year}-01-01`)!).getTime();
   let accumulatedBalance = movements
     .filter((m) => new Date(m.date).getTime() < yearStart)
-    .reduce((sum, m) => sum + movementEffect(m.type, Number(m.quantity)), 0);
+    .reduce((sum, m) => sum + getMovementEffect(m.type, Number(m.quantity)), 0);
 
   const yearMovements = movements
     .filter((m) => Number(brazilianIsoDate(m.date).slice(0, 4)) === year)
@@ -86,7 +81,7 @@ export function getStockEvolution(
       };
     }
 
-    monthlyData[monthKey].ledgerDelta += movementEffect(m.type, Number(m.quantity));
+    monthlyData[monthKey].ledgerDelta += getMovementEffect(m.type, Number(m.quantity));
 
     if (m.type === "Entrada") {
       monthlyData[monthKey].entrada += Math.abs(Number(m.quantity));

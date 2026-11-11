@@ -3,7 +3,7 @@ import type { ConsumptionSource, Participants, Vegetal } from "@/types/database"
 import { getSessionRoleValidationError } from "@/lib/sessionRoleEligibility";
 import type { MemberRoleData } from "@/lib/sessionRoleEligibility";
 import { isStockQuantity, sumStockQuantities } from "@/lib/stockQuantity";
-import { allowsTransmission, areParticipantsValid } from "@/lib/sessionData";
+import { allowsTransmission, areParticipantsValid, MAX_PARTICIPANTS } from "@/lib/sessionData";
 
 export interface ParsedSession {
   rowNumber: number;
@@ -120,7 +120,7 @@ export const validateSessionCsvRow = (
     errors.push("Explanador e Leitor são obrigatórios para este tipo de sessão");
   }
 
-  if (dirigente && mestreAssistente && SESSION_TYPES.some((sessionType) => sessionType === type)) {
+  if (dirigente && mestreAssistente && type) {
     const roleError = getSessionRoleValidationError({
       type,
       dirigente,
@@ -144,7 +144,7 @@ export const validateSessionCsvRow = (
     return [field, value];
   })) as Record<(typeof countFields)[number], number>;
   if (!areParticipantsValid(counts as Participants)) {
-    errors.push("Informe de 1 a 2.147.483.647 participantes inteiros não negativos");
+    errors.push(`Informe de 1 a ${MAX_PARTICIPANTS.toLocaleString("pt-BR")} participantes inteiros não negativos`);
   }
 
   const totalConsumed = parseNumber(row.consumo_total);
@@ -183,7 +183,7 @@ export const validateSessionCsvRow = (
       const amount = rawAmount?.trim()
         ? parseNumber(rawAmount)
         : isUnited ? null : totalConsumed;
-      if (amount === null || amount === undefined || !isStockQuantity(amount) || amount > vegetal.quantity) {
+      if (amount === null || amount === undefined || !isStockQuantity(amount) || amount > Number(vegetal.quantity)) {
         errors.push(`Quantidade inválida para o lote ${vegetal.name}`);
         continue;
       }

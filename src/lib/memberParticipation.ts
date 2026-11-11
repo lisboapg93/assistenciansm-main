@@ -1,8 +1,7 @@
-import { getMemberDisplayName, isMemberName } from "@/lib/memberDisplay";
-import type { Member } from "@/hooks/useMembers";
+import { getMemberDisplayName, isMemberName, type MemberDisplayData } from "@/lib/memberDisplay";
 import type { Session } from "@/types/database";
 
-export function getMembersWithoutParticipation<T extends Pick<Member, "name" | "grau" | "is_socio_nucleo">>(
+export function getMembersWithoutParticipation<T extends MemberDisplayData & { is_socio_nucleo: boolean }>(
   members: T[] | undefined,
   sessions: Pick<Session, "explanador" | "leitor">[] | undefined,
 ) {

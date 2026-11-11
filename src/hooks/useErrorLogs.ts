@@ -1,128 +1,102 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { getErrorMessage, logAndThrow } from "@/lib/errorLogging";
+import { isErrorLogMetadata, metadataText, sortErrorEntriesByRecency } from "@/lib/errorLogEntry";
+import type { ErrorEntry, ErrorLogMetadata } from "@/lib/errorLogEntry";
 
-type JsonObject = Record<string, unknown>;
+export type { ErrorEntry } from "@/lib/errorLogEntry";
+export { metadataText } from "@/lib/errorLogEntry";
 
-interface TechnicalErrorLog {
-  id: string;
-  error_message: string;
-  error_location: string;
-  operation: string | null;
-  entity: string | null;
-  entity_id: string | null;
-  metadata: JsonObject;
-  user_id: string | null;
-  occurred_at: string;
-}
+export const ERROR_LOGS_QUERY_KEY = ["error-logs"] as const;
 
-interface OperationFailureLog {
-  id: string;
-  operation: "create" | "update" | "delete" | "import";
-  entity: string;
-  entity_id: string | null;
-  error_message: string;
-  error_code: string | null;
-  error_location: string;
-  input_payload: JsonObject;
-  metadata: JsonObject;
-  user_id: string | null;
-  occurred_at: string;
-}
+/** Quantidade máxima de registros carregados de cada origem. */
+const ERROR_LOGS_LIMIT = 200;
 
-export interface ErrorEntry {
-  id: string;
-  source: "operacional" | "técnico";
-  operation: string | null;
-  entity: string | null;
-  entityId: string | null;
-  message: string;
-  code: string | null;
-  location: string;
-  userId: string | null;
-  occurredAt: string;
-  inputPayload: JsonObject | null;
-  metadata: JsonObject;
-}
+const toMetadata = (value: unknown): ErrorLogMetadata => (isErrorLogMetadata(value) ? value : {});
 
-type OperationFailureLogsRpc = (
-  functionName: "list_operation_failure_logs",
-  args: { p_limit: number },
-) => Promise<{ data: OperationFailureLog[] | null; error: { message: string } | null }>;
-
-export function metadataText(metadata: JsonObject, key: string) {
-  const value = metadata[key];
-  return typeof value === "string" ? value : null;
-}
-
-function getStoredErrorMessage(message: string, code: string | null, metadata: JsonObject) {
+function getStoredErrorMessage(message: string, code: string | null, metadata: ErrorLogMetadata) {
   return getErrorMessage({
     message,
-    code: code || metadataText(metadata, "error_code"),
+    code,
     constraint: metadataText(metadata, "error_constraint"),
+  });
+}
+
+async function fetchTechnicalErrors(): Promise<ErrorEntry[]> {
+  const { data, error } = await supabase
+    .from("error_logs")
+    .select("id, error_message, error_location, operation, entity, entity_id, metadata, user_id, occurred_at")
+    .order("occurred_at", { ascending: false })
+    .limit(ERROR_LOGS_LIMIT);
+
+  if (error) {
+    return logAndThrow(error, {
+      location: "Erros.listTechnical",
+      operation: "read",
+      entity: "error_logs",
+    });
+  }
+
+  return (data || []).map((row) => {
+    const metadata = toMetadata(row.metadata);
+    const code = metadataText(metadata, "error_code");
+    return {
+      id: `technical-${row.id}`,
+      source: "técnico",
+      operation: row.operation,
+      entity: row.entity,
+      entityId: row.entity_id,
+      message: getStoredErrorMessage(row.error_message, code, metadata),
+      code,
+      location: row.error_location,
+      userId: row.user_id,
+      occurredAt: row.occurred_at,
+      inputPayload: null,
+      metadata,
+    };
+  });
+}
+
+async function fetchOperationalErrors(): Promise<ErrorEntry[]> {
+  const { data, error } = await supabase.rpc("list_operation_failure_logs", { p_limit: ERROR_LOGS_LIMIT });
+
+  if (error) {
+    return logAndThrow(error, {
+      location: "Erros.listOperational",
+      operation: "read",
+      entity: "operation_failure_logs",
+    });
+  }
+
+  return (data || []).map((row) => {
+    const metadata = toMetadata(row.metadata);
+    const code = row.error_code || metadataText(metadata, "error_code");
+    return {
+      id: `operational-${row.id}`,
+      source: "operacional",
+      operation: row.operation,
+      entity: row.entity,
+      entityId: row.entity_id,
+      message: getStoredErrorMessage(row.error_message, code, metadata),
+      code: row.error_code,
+      location: row.error_location,
+      userId: row.user_id,
+      occurredAt: row.occurred_at,
+      inputPayload: toMetadata(row.input_payload),
+      metadata,
+    };
   });
 }
 
 export function useErrorLogs() {
   return useQuery({
-    queryKey: ["error-logs"],
+    queryKey: ERROR_LOGS_QUERY_KEY,
     queryFn: async (): Promise<ErrorEntry[]> => {
-      const operationFailureRpc = supabase.rpc.bind(supabase) as unknown as OperationFailureLogsRpc;
-      const [technicalResult, operationalResult] = await Promise.all([
-        supabase
-          .from("error_logs")
-          .select("id, error_message, error_location, operation, entity, entity_id, metadata, user_id, occurred_at")
-          .order("occurred_at", { ascending: false })
-          .limit(200),
-        operationFailureRpc("list_operation_failure_logs", { p_limit: 200 }),
+      const [technicalErrors, operationalErrors] = await Promise.all([
+        fetchTechnicalErrors(),
+        fetchOperationalErrors(),
       ]);
-
-      if (technicalResult.error) {
-        return logAndThrow(technicalResult.error, {
-          location: "Erros.listTechnical",
-          operation: "read",
-          entity: "error_logs",
-        });
-      }
-      if (operationalResult.error) {
-        return logAndThrow(operationalResult.error, {
-          location: "Erros.listOperational",
-          operation: "read",
-          entity: "operation_failure_logs",
-        });
-      }
-
-      const technicalErrors = (technicalResult.data as TechnicalErrorLog[]).map((error) => ({
-        id: `technical-${error.id}`,
-        source: "técnico" as const,
-        operation: error.operation,
-        entity: error.entity,
-        entityId: error.entity_id,
-        message: getStoredErrorMessage(error.error_message, metadataText(error.metadata, "error_code"), error.metadata),
-        code: typeof error.metadata.error_code === "string" ? error.metadata.error_code : null,
-        location: error.error_location,
-        userId: error.user_id,
-        occurredAt: error.occurred_at,
-        inputPayload: null,
-        metadata: error.metadata,
-      }));
-      const operationalErrors = (operationalResult.data || []).map((error) => ({
-        id: `operational-${error.id}`,
-        source: "operacional" as const,
-        operation: error.operation,
-        entity: error.entity,
-        entityId: error.entity_id,
-        message: getStoredErrorMessage(error.error_message, error.error_code, error.metadata),
-        code: error.error_code,
-        location: error.error_location,
-        userId: error.user_id,
-        occurredAt: error.occurred_at,
-        inputPayload: error.input_payload,
-        metadata: error.metadata,
-      }));
-
-      return [...operationalErrors, ...technicalErrors]
-        .sort((first, second) => second.occurredAt.localeCompare(first.occurredAt));
+      return sortErrorEntriesByRecency([...operationalErrors, ...technicalErrors]);
     },
   });
 }

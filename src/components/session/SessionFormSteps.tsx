@@ -3,14 +3,13 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { MAX_PARTICIPANTS } from "@/lib/sessionData";
+import { MAX_PARTICIPANTS, sumParticipants } from "@/lib/sessionData";
+import type { SessionContentData } from "@/lib/sessionForm";
 import { PARTICIPANT_LABELS, type Participants } from "@/types/database";
 
-export interface SessionContentData {
-  has_photo: boolean;
-  has_audio: boolean;
-  observation: string;
-}
+export type { SessionContentData } from "@/lib/sessionForm";
+
+const PARTICIPANT_KEYS = Object.keys(PARTICIPANT_LABELS) as Array<keyof Participants>;
 
 export function SessionContentStep({ contentData, setContentData, placeholder = "Notas gerais...", rows = 2 }: {
   contentData: SessionContentData;
@@ -18,6 +17,9 @@ export function SessionContentStep({ contentData, setContentData, placeholder = 
   placeholder?: string;
   rows?: number;
 }) {
+  const update = (changes: Partial<SessionContentData>) =>
+    setContentData((current) => ({ ...current, ...changes }));
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-6">
@@ -25,12 +27,7 @@ export function SessionContentStep({ contentData, setContentData, placeholder = 
           <Checkbox
             id="has_photo"
             checked={contentData.has_photo}
-            onCheckedChange={(checked) =>
-              setContentData({
-                ...contentData,
-                has_photo: checked as boolean,
-              })
-            }
+            onCheckedChange={(checked) => update({ has_photo: checked === true })}
           />
           <Label htmlFor="has_photo" className="cursor-pointer">
             Registro Fotográfico
@@ -40,12 +37,7 @@ export function SessionContentStep({ contentData, setContentData, placeholder = 
           <Checkbox
             id="has_audio"
             checked={contentData.has_audio}
-            onCheckedChange={(checked) =>
-              setContentData({
-                ...contentData,
-                has_audio: checked as boolean,
-              })
-            }
+            onCheckedChange={(checked) => update({ has_audio: checked === true })}
           />
           <Label htmlFor="has_audio" className="cursor-pointer">
             Registro de Áudio
@@ -53,12 +45,11 @@ export function SessionContentStep({ contentData, setContentData, placeholder = 
         </div>
       </div>
       <div className="space-y-2">
-        <Label>Acontecimento na Sessão</Label>
+        <Label htmlFor="session-observation">Acontecimento na Sessão</Label>
         <Textarea
+          id="session-observation"
           value={contentData.observation}
-          onChange={(e) =>
-            setContentData({ ...contentData, observation: e.target.value })
-          }
+          onChange={(e) => update({ observation: e.target.value })}
           placeholder={placeholder}
           rows={rows}
         />
@@ -67,28 +58,26 @@ export function SessionContentStep({ contentData, setContentData, placeholder = 
   );
 }
 
-export function SessionParticipantsStep({ participants, setParticipants, totalParticipants }: {
+export function SessionParticipantsStep({ participants, setParticipants }: {
   participants: Participants;
   setParticipants: Dispatch<SetStateAction<Participants>>;
-  totalParticipants: number;
 }) {
   return (
     <div className="space-y-6">
       <div className="grid gap-4 grid-cols-2 md:grid-cols-3">
-        {Object.entries(participants).map(([key, value]) => (
+        {PARTICIPANT_KEYS.map((key) => (
           <div key={key} className="space-y-2">
-            <Label>{PARTICIPANT_LABELS[key as keyof typeof PARTICIPANT_LABELS]}</Label>
+            <Label htmlFor={`participants-${key}`}>{PARTICIPANT_LABELS[key]}</Label>
             <Input
+              id={`participants-${key}`}
               type="number"
               min="0"
               max={MAX_PARTICIPANTS}
-              value={value || ""}
-              onChange={(e) =>
-                setParticipants({
-                  ...participants,
-                  [key]: Number(e.target.value),
-                })
-              }
+              value={participants[key] || ""}
+              onChange={(e) => {
+                const count = Number(e.target.value);
+                setParticipants((current) => ({ ...current, [key]: count }));
+              }}
               placeholder="0"
             />
           </div>
@@ -99,7 +88,7 @@ export function SessionParticipantsStep({ participants, setParticipants, totalPa
           Total de Participantes
         </p>
         <p className="text-2xl font-bold text-primary">
-          {totalParticipants}
+          {sumParticipants(participants)}
         </p>
       </div>
     </div>

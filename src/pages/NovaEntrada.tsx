@@ -1,77 +1,105 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { ArrowLeft, Droplets, Save } from "lucide-react";
 import { useCreateVegetal } from "@/hooks/useVegetais";
 import { useMembers } from "@/hooks/useMembers";
 import { getMemberDisplayName } from "@/lib/memberDisplay";
 import { toast } from "sonner";
-import { isStockQuantity } from "@/lib/stockQuantity";
 import { QueryError } from "@/components/QueryError";
+import { buildVegetalInput, EMPTY_VEGETAL_ENTRY_FORM, type VegetalEntryForm } from "@/lib/stockEntry";
+import {
+  MEMBER_SUGGESTIONS_LIST_ID,
+  VegetalEntryField,
+  type VegetalEntryFieldConfig,
+} from "@/components/vegetal/VegetalEntryField";
+
+const STOCK_ROUTE = "/estoque";
+
+interface FieldGroup {
+  columnsClassName: string;
+  fields: VegetalEntryFieldConfig[];
+}
+
+const FIELD_GROUPS: FieldGroup[] = [
+  {
+    columnsClassName: "",
+    fields: [
+      { name: "name", label: "Nome / Identificação", required: true, placeholder: "Ex: Mestre Fulano - Grau X - Maio/2024" },
+    ],
+  },
+  {
+    columnsClassName: "grid gap-4 md:grid-cols-2",
+    fields: [
+      {
+        name: "quantity",
+        label: "Quantidade (L)",
+        required: true,
+        placeholder: "Ex: 10.5",
+        inputProps: { type: "number", step: "0.01", min: "0", inputMode: "decimal" },
+      },
+      { name: "envase_date", label: "Data do Envase", required: true, inputProps: { type: "date" } },
+    ],
+  },
+  {
+    columnsClassName: "grid gap-4 md:grid-cols-2",
+    fields: [
+      { name: "master", label: "Mestre do Preparo", required: true, suggestMembers: true, placeholder: "Nome do mestre" },
+      { name: "auxiliary", label: "Auxiliar", suggestMembers: true, placeholder: "Nome do auxiliar (opcional)" },
+    ],
+  },
+  {
+    columnsClassName: "grid gap-4 md:grid-cols-3",
+    fields: [
+      { name: "mensageiro", label: "Mensageiro", suggestMembers: true, placeholder: "Nome do mensageiro" },
+      { name: "responsavel_chacrona", label: "Resp. Chacrona", suggestMembers: true, placeholder: "Responsável pela chacrona" },
+      { name: "responsavel_baticao", label: "Resp. Batição", suggestMembers: true, placeholder: "Responsável pela batição" },
+    ],
+  },
+  {
+    columnsClassName: "grid gap-4 md:grid-cols-2",
+    fields: [
+      { name: "mariri_species", label: "Espécie do Mariri", placeholder: "Opcional" },
+      { name: "chacrona_species", label: "Espécie da Chacrona", placeholder: "Opcional" },
+    ],
+  },
+  {
+    columnsClassName: "",
+    fields: [
+      { name: "registered_by_name", label: "Registrado por", suggestMembers: true, placeholder: "Seu nome (opcional)" },
+    ],
+  },
+];
 
 export default function NovaEntrada() {
   const navigate = useNavigate();
   const createVegetal = useCreateVegetal();
   const memberQuery = useMembers();
   const { data: members } = memberQuery;
+  const [formData, setFormData] = useState<VegetalEntryForm>(EMPTY_VEGETAL_ENTRY_FORM);
 
-  const [formData, setFormData] = useState({
-    name: "",
-    quantity: "",
-    envase_date: "",
-    master: "",
-    auxiliary: "",
-    mariri_species: "",
-    chacrona_species: "",
-    registered_by_name: "",
-    mensageiro: "",
-    responsavel_chacrona: "",
-    responsavel_baticao: "",
-  });
+  const updateField = (name: keyof VegetalEntryForm, value: string) =>
+    setFormData((prev) => ({ ...prev, [name]: value }));
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     if (createVegetal.isPending) return;
 
-    if (!formData.name.trim() || !formData.quantity || !formData.envase_date || !formData.master.trim()) {
-      toast.error("Preencha todos os campos obrigatórios");
+    const result = buildVegetalInput(formData);
+    if (result.ok === false) {
+      toast.error(result.error);
       return;
     }
 
-    const quantity = parseFloat(formData.quantity);
-    if (!isStockQuantity(quantity)) {
-      toast.error("Informe quantidade positiva com no máximo 2 casas decimais.");
-      return;
-    }
-
-    createVegetal.mutate(
-      {
-        name: formData.name,
-        quantity,
-        initial_quantity: quantity,
-        envase_date: formData.envase_date,
-        master: formData.master,
-        auxiliary: formData.auxiliary || null,
-        mariri_species: formData.mariri_species || null,
-        chacrona_species: formData.chacrona_species || null,
-        registered_by_name: formData.registered_by_name || null,
-        mensageiro: formData.mensageiro || null,
-        responsavel_chacrona: formData.responsavel_chacrona || null,
-        responsavel_baticao: formData.responsavel_baticao || null,
-      },
-      {
-        onSuccess: () => {
-          navigate("/estoque");
-        },
-      }
-    );
+    createVegetal.mutate(result.vegetal, {
+      onSuccess: () => navigate(STOCK_ROUTE),
+    });
   };
 
-  const memberNames = members?.map(getMemberDisplayName) || [];
+  // Nomes exibidos podem coincidir (ex.: "Mestre João" e "M. João").
+  const memberNames = [...new Set(members?.map(getMemberDisplayName) ?? [])];
 
   return (
     <MainLayout>
@@ -96,167 +124,22 @@ export default function NovaEntrada() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* Nome/Identificação */}
-              <div className="space-y-2">
-                <Label htmlFor="name">
-                  Nome / Identificação <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="name"
-                  placeholder="Ex: Mestre Fulano - Grau X - Maio/2024"
-                  value={formData.name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
-                  }
-                />
-              </div>
+            <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+              {FIELD_GROUPS.map((group) => {
+                const fields = group.fields.map((field) => (
+                  <VegetalEntryField
+                    key={field.name}
+                    field={field}
+                    value={formData[field.name]}
+                    onChange={updateField}
+                  />
+                ));
+                return group.columnsClassName
+                  ? <div key={group.fields[0].name} className={group.columnsClassName}>{fields}</div>
+                  : fields;
+              })}
 
-              {/* Quantidade e Data */}
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="quantity">
-                    Quantidade (L) <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="quantity"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="Ex: 10.5"
-                    value={formData.quantity}
-                    onChange={(e) =>
-                      setFormData({ ...formData, quantity: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="envase_date">
-                    Data do Envase <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="envase_date"
-                    type="date"
-                    value={formData.envase_date}
-                    onChange={(e) =>
-                      setFormData({ ...formData, envase_date: e.target.value })
-                    }
-                  />
-                </div>
-              </div>
-
-              {/* Mestre e Auxiliar */}
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="master">
-                    Mestre do Preparo <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="master"
-                    list="members-list"
-                    placeholder="Nome do mestre"
-                    value={formData.master}
-                    onChange={(e) =>
-                      setFormData({ ...formData, master: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="auxiliary">Auxiliar</Label>
-                  <Input
-                    id="auxiliary"
-                    list="members-list"
-                    placeholder="Nome do auxiliar (opcional)"
-                    value={formData.auxiliary}
-                    onChange={(e) =>
-                      setFormData({ ...formData, auxiliary: e.target.value })
-                    }
-                  />
-                </div>
-              </div>
-
-              {/* Mensageiro e Responsáveis */}
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2">
-                  <Label htmlFor="mensageiro">Mensageiro</Label>
-                  <Input
-                    id="mensageiro"
-                    list="members-list"
-                    placeholder="Nome do mensageiro"
-                    value={formData.mensageiro}
-                    onChange={(e) =>
-                      setFormData({ ...formData, mensageiro: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="responsavel_chacrona">Resp. Chacrona</Label>
-                  <Input
-                    id="responsavel_chacrona"
-                    list="members-list"
-                    placeholder="Responsável pela chacrona"
-                    value={formData.responsavel_chacrona}
-                    onChange={(e) =>
-                      setFormData({ ...formData, responsavel_chacrona: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="responsavel_baticao">Resp. Batição</Label>
-                  <Input
-                    id="responsavel_baticao"
-                    list="members-list"
-                    placeholder="Responsável pela batição"
-                    value={formData.responsavel_baticao}
-                    onChange={(e) =>
-                      setFormData({ ...formData, responsavel_baticao: e.target.value })
-                    }
-                  />
-                </div>
-              </div>
-
-              {/* Espécies */}
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="mariri_species">Espécie do Mariri</Label>
-                  <Input
-                    id="mariri_species"
-                    placeholder="Opcional"
-                    value={formData.mariri_species}
-                    onChange={(e) =>
-                      setFormData({ ...formData, mariri_species: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="chacrona_species">Espécie da Chacrona</Label>
-                  <Input
-                    id="chacrona_species"
-                    placeholder="Opcional"
-                    value={formData.chacrona_species}
-                    onChange={(e) =>
-                      setFormData({ ...formData, chacrona_species: e.target.value })
-                    }
-                  />
-                </div>
-              </div>
-
-              {/* Registrado por */}
-              <div className="space-y-2">
-                <Label htmlFor="registered_by_name">Registrado por</Label>
-                <Input
-                  id="registered_by_name"
-                  list="members-list"
-                  placeholder="Seu nome (opcional)"
-                  value={formData.registered_by_name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, registered_by_name: e.target.value })
-                  }
-                />
-              </div>
-
-              {/* Datalist for autocomplete */}
-              <datalist id="members-list">
+              <datalist id={MEMBER_SUGGESTIONS_LIST_ID}>
                 {memberNames.map((name) => (
                   <option key={name} value={name} />
                 ))}

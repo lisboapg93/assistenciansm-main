@@ -1,4 +1,4 @@
-import { useAuthContext } from "@/contexts/AuthContext";
+import { useAuthContext } from "@/hooks/useAuthContext";
 import { Button } from "@/components/ui/button";
 import { QueryError } from "@/components/QueryError";
 

@@ -1,39 +1,17 @@
-import { useState } from "react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { Droplets } from "lucide-react";
 import { Vegetal } from "@/types/database";
-import { useUpdateVegetal } from "@/hooks/useVegetais";
-import { useStockMovements } from "@/hooks/useStockMovements";
-import { format } from "date-fns";
-import { ptBR } from "date-fns/locale";
-import { ArrowDownRight, ArrowUpRight, Settings, Droplets } from "lucide-react";
-import { useAuthContext } from "@/contexts/AuthContext";
-import { toast } from "sonner";
-import { useMemo } from "react";
-import { MemberDisplayData, getMemberDisplayNameForValue } from "@/lib/memberDisplay";
-import { formatBrazilianDateTime, parseDbDateToLocal } from "@/lib/date";
-import { isStockQuantity } from "@/lib/stockQuantity";
-import { QueryError } from "@/components/QueryError";
+import { useAuthContext } from "@/hooks/useAuthContext";
+import { MemberDisplayData } from "@/lib/memberDisplay";
+import { VegetalInfoGrid } from "@/components/vegetal/VegetalInfoGrid";
+import { StockChangeForm } from "@/components/vegetal/StockChangeForm";
+import { StockMovementHistory } from "@/components/vegetal/StockMovementHistory";
 
 interface VegetalDetailModalProps {
   vegetal: Vegetal | null;
@@ -48,119 +26,13 @@ export function VegetalDetailModal({
   onClose,
   members,
 }: VegetalDetailModalProps) {
-  const { isEditor } = useAuthContext();
-  const [saidaQtd, setSaidaQtd] = useState("");
-  const [saidaMotivo, setSaidaMotivo] = useState("");
-  const [saidaRegistradoPor, setSaidaRegistradoPor] = useState("");
-  const [ajusteQtd, setAjusteQtd] = useState("");
-  const [ajusteMotivo, setAjusteMotivo] = useState("");
-  const [ajusteRegistradoPor, setAjusteRegistradoPor] = useState("");
-
-  const updateVegetal = useUpdateVegetal();
-  const { data: movements, isLoading: isLoadingMovements, isError, error, refetch } = useStockMovements(vegetal?.id, Boolean(vegetal && open));
-
-  const movementsWithBalance = useMemo(() => {
-    if (!movements) return [];
-
-    let balanceAfterMovement = Number(vegetal?.quantity || 0);
-    const reverseChronological = [...movements].sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-
-    return reverseChronological.map((movement) => {
-      const quantity = Number(movement.quantity);
-      const effect =
-        movement.type === "Entrada" || movement.type === "Saldo"
-          ? Math.abs(quantity)
-          : movement.type === "Ajuste"
-            ? -quantity
-            : -Math.abs(quantity);
-      const movementWithBalance = {
-        ...movement,
-        effect,
-        balance: Math.max(0, balanceAfterMovement),
-      };
-      balanceAfterMovement -= effect;
-      return movementWithBalance;
-    });
-  }, [movements, vegetal?.quantity]);
+  // Saída e ajuste são exclusivos de editores; o banco também valida o papel.
+  const { isEditor: canChangeStock } = useAuthContext();
 
   if (!vegetal) return null;
 
-  const availableQuantity = Number(vegetal.quantity);
-  const requestedQuantity = Number.parseFloat(saidaQtd);
-  const exceedsAvailableQuantity =
-    saidaQtd !== "" && Number.isFinite(requestedQuantity) && requestedQuantity > availableQuantity;
-
-  const handleSaida = () => {
-    if (!isEditor || updateVegetal.isPending) return;
-    const qtd = parseFloat(saidaQtd);
-    if (!isStockQuantity(qtd)) return;
-    if (qtd > vegetal.quantity) return;
-
-    const registeredBy = saidaRegistradoPor.trim();
-    updateVegetal.mutate(
-      {
-        id: vegetal.id,
-        quantity: qtd,
-        expectedQuantity: Number(vegetal.quantity),
-        movementType: "Saída",
-        movementDetails: `${saidaMotivo || "Saída manual de estoque"}${registeredBy ? ` - Registrado por: ${registeredBy}` : ""}`,
-      },
-      {
-        onSuccess: () => {
-          setSaidaQtd("");
-          setSaidaMotivo("");
-          setSaidaRegistradoPor("");
-          onClose();
-        },
-      }
-    );
-  };
-
-  const handleAjuste = () => {
-    if (!isEditor || updateVegetal.isPending) return;
-    const qtd = parseFloat(ajusteQtd);
-    if (!isStockQuantity(qtd, true)) {
-      toast.error("Quantidade inválida");
-      return;
-    }
-
-    const registeredBy = ajusteRegistradoPor.trim();
-    updateVegetal.mutate(
-      {
-        id: vegetal.id,
-        quantity: qtd,
-        expectedQuantity: Number(vegetal.quantity),
-        movementType: "Ajuste",
-        movementDetails: `${ajusteMotivo || "Ajuste/correção de estoque"}${registeredBy ? ` - Registrado por: ${registeredBy}` : ""}`,
-      },
-      {
-        onSuccess: () => {
-          setAjusteQtd("");
-          setAjusteMotivo("");
-          setAjusteRegistradoPor("");
-          onClose();
-        },
-      }
-    );
-  };
-
-  const getMovementIcon = (type: string) => {
-    switch (type) {
-      case "Entrada":
-      case "Saldo":
-        return <ArrowUpRight className="h-4 w-4 text-primary" />;
-      case "Saída":
-      case "Consumo":
-        return <ArrowDownRight className="h-4 w-4 text-destructive" />;
-      default:
-        return <Settings className="h-4 w-4 text-warning" />;
-    }
-  };
-
   return (
-    <Dialog open={open} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -169,226 +41,34 @@ export function VegetalDetailModal({
           </DialogTitle>
         </DialogHeader>
 
-        {/* All Information Visible */}
-        <div className="grid grid-cols-2 gap-4 py-4 border-y border-border">
-          <div>
-            <p className="text-sm text-muted-foreground">Mestre do Preparo</p>
-            <p className="font-medium">{getMemberDisplayNameForValue(vegetal.master, members)}</p>
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Auxiliar</p>
-            <p className="font-medium">
-              {vegetal.auxiliary ? getMemberDisplayNameForValue(vegetal.auxiliary, members) : "-"}
-            </p>
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Data Envase</p>
-            <p className="font-medium">
-              {format(parseDbDateToLocal(vegetal.envase_date), "dd/MM/yyyy", { locale: ptBR })}
-            </p>
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Quantidade Atual</p>
-            <p className="font-medium text-primary">
-              {Number(vegetal.quantity).toFixed(2)} L
-            </p>
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Quantidade Inicial</p>
-            <p className="font-medium">{Number(vegetal.initial_quantity).toFixed(2)} L</p>
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Espécie Mariri</p>
-            <p className="font-medium">{vegetal.mariri_species || "-"}</p>
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Espécie Chacrona</p>
-            <p className="font-medium">{vegetal.chacrona_species || "-"}</p>
-          </div>
-          <div>
-            <p className="text-sm text-muted-foreground">Registrado por</p>
-            <p className="font-medium">
-              {vegetal.registered_by_name ? getMemberDisplayNameForValue(vegetal.registered_by_name, members) : "-"}
-            </p>
-          </div>
-        </div>
+        <VegetalInfoGrid vegetal={vegetal} members={members} />
 
-        <Tabs defaultValue={isEditor ? "saida" : "historico"} className="mt-4">
-          <TabsList className={isEditor ? "grid w-full grid-cols-3" : "w-full"}>
-            {isEditor && <TabsTrigger value="saida">Saída</TabsTrigger>}
-            {isEditor && <TabsTrigger value="ajuste">Ajuste</TabsTrigger>}
+        <Tabs defaultValue={canChangeStock ? "saida" : "historico"} className="mt-4">
+          <TabsList className={canChangeStock ? "grid w-full grid-cols-3" : "w-full"}>
+            {canChangeStock && <TabsTrigger value="saida">Saída</TabsTrigger>}
+            {canChangeStock && <TabsTrigger value="ajuste">Ajuste</TabsTrigger>}
             <TabsTrigger value="historico">Histórico</TabsTrigger>
           </TabsList>
 
-          {isEditor && (
-            <TabsContent value="saida" className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label>Quantidade (L)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  max={vegetal.quantity}
-                  inputMode="decimal"
-                  value={saidaQtd}
-                  onChange={(e) => setSaidaQtd(e.target.value)}
-                  placeholder="Ex: 1.5"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Disponível: {availableQuantity.toFixed(2)} L. Use no máximo 2 casas decimais.
-                </p>
-                {exceedsAvailableQuantity && (
-                  <p className="text-xs text-destructive" role="alert">
-                    A quantidade informada é maior que o saldo disponível.
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label>Motivo</Label>
-                <Textarea
-                  value={saidaMotivo}
-                  onChange={(e) => setSaidaMotivo(e.target.value)}
-                  placeholder="Descarte, doação, etc."
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Registrado por</Label>
-                <Input
-                  value={saidaRegistradoPor}
-                  onChange={(e) => setSaidaRegistradoPor(e.target.value)}
-                  placeholder="Nome de quem está registrando"
-                />
-              </div>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="destructive"
-                    className="w-full"
-                    disabled={
-                      !saidaQtd ||
-                      updateVegetal.isPending ||
-                      !isStockQuantity(requestedQuantity) ||
-                      exceedsAvailableQuantity
-                    }
-                  >
-                    Registrar Saída
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Confirmar Saída</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Tem certeza que deseja registrar a saída de {saidaQtd} L do estoque?
-                      Esta ação não pode ser desfeita.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleSaida} disabled={updateVegetal.isPending}>Confirmar</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </TabsContent>
-          )}
-
-          {isEditor && (
-            <TabsContent value="ajuste" className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label>Nova Quantidade (L)</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={ajusteQtd}
-                  onChange={(e) => setAjusteQtd(e.target.value)}
-                  placeholder={`Atual: ${vegetal.quantity}`}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Justificativa</Label>
-                <Textarea
-                  value={ajusteMotivo}
-                  onChange={(e) => setAjusteMotivo(e.target.value)}
-                  placeholder="Correção de inventário, erro de medição, etc."
-                />
-              </div>
-              <div className="space-y-2">
-                <Label>Registrado por</Label>
-                <Input
-                  value={ajusteRegistradoPor}
-                  onChange={(e) => setAjusteRegistradoPor(e.target.value)}
-                  placeholder="Nome de quem está registrando"
-                />
-              </div>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full"
-                    disabled={updateVegetal.isPending || !ajusteQtd || !isStockQuantity(parseFloat(ajusteQtd), true) || parseFloat(ajusteQtd) === availableQuantity}
-                  >
-                    Aplicar Ajuste
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Confirmar Ajuste</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Tem certeza que deseja ajustar a quantidade de {vegetal.quantity} L
-                      para {ajusteQtd} L? Esta ação será registrada no histórico.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleAjuste} disabled={updateVegetal.isPending}>Confirmar</AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </TabsContent>
+          {/* forceMount preserva o que foi digitado ao alternar entre as abas. */}
+          {canChangeStock && (
+            <>
+              <TabsContent value="saida" forceMount className="mt-4 data-[state=inactive]:hidden">
+                <StockChangeForm operation="Saída" vegetal={vegetal} onSuccess={onClose} />
+              </TabsContent>
+              <TabsContent value="ajuste" forceMount className="mt-4 data-[state=inactive]:hidden">
+                <StockChangeForm operation="Ajuste" vegetal={vegetal} onSuccess={onClose} />
+              </TabsContent>
+            </>
           )}
 
           <TabsContent value="historico" className="mt-4">
             <div className="max-h-80 overflow-y-auto space-y-2 pr-1">
-              {isError ? <QueryError error={error} onRetry={() => void refetch()} /> : isLoadingMovements ? (
-                <p className="py-4 text-center text-muted-foreground">Carregando movimentações...</p>
-              ) : movementsWithBalance.length === 0 ? (
-                <p className="text-center text-muted-foreground py-4">
-                  Nenhuma movimentação registrada
-                </p>
-              ) : (
-                movementsWithBalance.map((m) => (
-                  <div
-                    key={m.id}
-                    className="flex items-start gap-3 p-3 rounded-lg bg-muted/50"
-                  >
-                    <span className="mt-0.5 shrink-0">{getMovementIcon(m.type)}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium">{m.type}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {formatBrazilianDateTime(m.date)}
-                        </p>
-                      </div>
-                      <p className="text-xs text-muted-foreground break-words">
-                        {m.details}
-                      </p>
-                      <p className="text-xs font-medium mt-1">
-                        Saldo após movimentação: {m.balance.toFixed(2)} L
-                      </p>
-                    </div>
-                    <p
-                      className={`shrink-0 text-sm font-medium ${
-                        m.effect >= 0
-                          ? "text-primary"
-                          : "text-destructive"
-                      }`}
-                    >
-                      {m.effect >= 0 ? "+" : "-"}
-                      {Math.abs(m.effect).toFixed(2)} L
-                    </p>
-                  </div>
-                ))
-              )}
+              <StockMovementHistory
+                vegetalId={vegetal.id}
+                currentQuantity={Number(vegetal.quantity)}
+                enabled={open}
+              />
             </div>
           </TabsContent>
         </Tabs>

@@ -6,6 +6,15 @@ interface ErrorWithDetails {
   hint?: unknown;
 }
 
+export const UNIQUE_VIOLATION_CODE = "23505";
+export const SESSION_DUPLICATE_CONSTRAINT = "session_no_duplicate_logical_record_idx";
+// Inclui restrições legadas, que ainda podem aparecer em registros antigos.
+export const MEMBER_DUPLICATE_CONSTRAINTS: readonly string[] = [
+  "members_name_key",
+  "members_person_name_key_unique_idx",
+  "members_identity_key_unique_idx",
+];
+
 export const SENSITIVE_LOG_FIELD_PATTERN = /password|passwd|token|secret|authorization|cookie|api[_-]?key|publishable[_-]?key|credential|connection[_-]?string/i;
 
 function errorDetails(error: unknown): ErrorWithDetails {
@@ -32,12 +41,10 @@ export function getErrorConstraint(error: unknown): string | null {
 }
 
 export function getUniqueViolationEntity(error: unknown): "session" | "members" | null {
-  if (getErrorCode(error) !== "23505") return null;
+  if (getErrorCode(error) !== UNIQUE_VIOLATION_CODE) return null;
   const constraint = getErrorConstraint(error);
-  if (constraint === "session_no_duplicate_logical_record_idx") return "session";
-  if (["members_name_key", "members_person_name_key_unique_idx", "members_identity_key_unique_idx"].includes(constraint)) {
-    return "members";
-  }
+  if (constraint === SESSION_DUPLICATE_CONSTRAINT) return "session";
+  if (constraint && MEMBER_DUPLICATE_CONSTRAINTS.includes(constraint)) return "members";
   // Compatibilidade com o erro explícito dos triggers antigos de membros.
   if (/^Já existe um membro com este nome[.!]?$/i.test(getRawErrorMessage(error))) return "members";
   return null;

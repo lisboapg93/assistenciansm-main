@@ -5,13 +5,11 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { toggleSessionSource } from "@/lib/sessionSourceSelection";
-import type { ConsumptionSource, Vegetal } from "@/types/database";
+import type { SessionConsumptionData } from "@/lib/sessionForm";
+import { formatLiters, parseStockQuantityInput } from "@/lib/stockQuantity";
+import type { Vegetal } from "@/types/database";
 
-export interface SessionConsumptionData {
-  total_consumed: string;
-  is_united: boolean;
-  sources: ConsumptionSource[];
-}
+export type { SessionConsumptionData } from "@/lib/sessionForm";
 
 export function SessionConsumptionStep({ vegetais, consumptionData, setConsumptionData, totalAvailable }: {
   vegetais: Vegetal[] | undefined;
@@ -29,17 +27,38 @@ export function SessionConsumptionStep({ vegetais, consumptionData, setConsumpti
       .map((source) => ({ id: source.vegetal_id, name: source.vegetal_name, quantity: 0 })),
   ];
 
-  const handleAddSource = (vegetalId: string) => {
-    const sources = toggleSessionSource(consumptionData.sources, vegetalId, vegetais || []);
-    if (sources !== consumptionData.sources) setConsumptionData({ ...consumptionData, sources });
+  const totalConsumed = parseStockQuantityInput(consumptionData.total_consumed);
+
+  const handleToggleSource = (vegetalId: string) => {
+    setConsumptionData((current) => {
+      const sources = toggleSessionSource(current.sources, vegetalId, vegetais || []);
+      return sources === current.sources ? current : { ...current, sources };
+    });
   };
 
   const handleSourceAmountChange = (vegetalId: string, amount: number) => {
-    setConsumptionData({
-      ...consumptionData,
-      sources: consumptionData.sources.map((s) =>
-        s.vegetal_id === vegetalId ? { ...s, amount_available: amount } : s
+    setConsumptionData((current) => ({
+      ...current,
+      sources: current.sources.map((source) =>
+        source.vegetal_id === vegetalId ? { ...source, amount_available: amount } : source
       ),
+    }));
+  };
+
+  // Desfazer a união mantém só o primeiro lote, com o saldo integral dele.
+  const handleUnitedChange = (isUnited: boolean) => {
+    setConsumptionData((current) => {
+      if (isUnited) return { ...current, is_united: true };
+
+      const firstSource = current.sources[0];
+      const vegetal = firstSource ? vegetalById.get(firstSource.vegetal_id) : undefined;
+      return {
+        ...current,
+        is_united: false,
+        sources: firstSource
+          ? [{ ...firstSource, amount_available: vegetal ? Number(vegetal.quantity) : 0 }]
+          : [],
+      };
     });
   };
 
@@ -52,22 +71,7 @@ export function SessionConsumptionStep({ vegetais, consumptionData, setConsumpti
             <Switch
               id="is_united"
               checked={consumptionData.is_united}
-              onCheckedChange={(checked) => {
-                if (checked) {
-                  setConsumptionData({ ...consumptionData, is_united: true });
-                  return;
-                }
-
-                const firstSource = consumptionData.sources[0];
-                const vegetal = firstSource ? vegetalById.get(firstSource.vegetal_id) : undefined;
-                setConsumptionData({
-                  ...consumptionData,
-                  is_united: false,
-                  sources: firstSource
-                    ? [{ ...firstSource, amount_available: vegetal ? Number(vegetal.quantity) : 0 }]
-                    : [],
-                });
-              }}
+              onCheckedChange={handleUnitedChange}
             />
             <Label htmlFor="is_united" className="text-sm">
               Vegetal Unido
@@ -77,12 +81,10 @@ export function SessionConsumptionStep({ vegetais, consumptionData, setConsumpti
 
         <div className="grid gap-2 max-h-48 overflow-y-auto">
           {selectableVegetais.map((vegetal) => {
-              const isSelected = consumptionData.sources.some(
-                (s) => s.vegetal_id === vegetal.id
-              );
               const source = consumptionData.sources.find(
-                (s) => s.vegetal_id === vegetal.id
+                (item) => item.vegetal_id === vegetal.id
               );
+              const isSelected = source !== undefined;
 
               return (
                 <div
@@ -93,13 +95,13 @@ export function SessionConsumptionStep({ vegetais, consumptionData, setConsumpti
                       ? "border-primary bg-primary/5"
                       : "border-border hover:bg-muted/50"
                   )}
-                  onClick={() => handleAddSource(vegetal.id)}
+                  onClick={() => handleToggleSource(vegetal.id)}
                 >
                   <Checkbox checked={isSelected} />
                   <div className="flex-1 min-w-0">
                     <p className="font-medium truncate">{vegetal.name}</p>
                     <p className="text-sm text-muted-foreground">
-                      Disponível: {Number(vegetal.quantity).toFixed(2)} L
+                      Disponível: {formatLiters(vegetal.quantity)}
                       {isSelected && Number(vegetal.quantity) <= 0 ? " — desmarque este lote" : ""}
                     </p>
                   </div>
@@ -134,7 +136,7 @@ export function SessionConsumptionStep({ vegetais, consumptionData, setConsumpti
               Total disponibilizado:
             </span>
             <span className="font-medium">
-              {totalAvailable.toFixed(2)} L
+              {formatLiters(totalAvailable)}
             </span>
           </div>
 
@@ -149,31 +151,24 @@ export function SessionConsumptionStep({ vegetais, consumptionData, setConsumpti
               min="0"
               max={totalAvailable}
               value={consumptionData.total_consumed}
-              onChange={(e) =>
-                setConsumptionData({
-                  ...consumptionData,
-                  total_consumed: e.target.value,
-                })
-              }
+              onChange={(e) => {
+                const total_consumed = e.target.value;
+                setConsumptionData((current) => ({ ...current, total_consumed }));
+              }}
               placeholder="Ex: 2.5"
             />
           </div>
 
-          {consumptionData.is_united &&
-            parseFloat(consumptionData.total_consumed) > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">
-                  Saldo (novo vegetal):
-                </span>
-                <span className="font-medium text-primary">
-                  {(
-                    totalAvailable -
-                    parseFloat(consumptionData.total_consumed || "0")
-                  ).toFixed(2)}{" "}
-                  L
-                </span>
-              </div>
-            )}
+          {consumptionData.is_united && totalConsumed > 0 && (
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">
+                Saldo (novo vegetal):
+              </span>
+              <span className="font-medium text-primary">
+                {formatLiters(totalAvailable - totalConsumed)}
+              </span>
+            </div>
+          )}
 
         </div>
       )}

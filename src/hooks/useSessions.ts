@@ -1,18 +1,18 @@
+import { useCallback, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Session, Consumption } from "@/types/database";
+import type { Session, Consumption, ConsumptionSource } from "@/types/database";
 import type { Database } from "@/integrations/supabase/types";
 import { toast } from "sonner";
-import { getErrorMessage, logAndThrow } from "@/lib/errorLogging";
+import { getErrorMessage, getUniqueViolationEntity, logAndThrow } from "@/lib/errorLogging";
 import { subtractMonthsFromIsoDate, todayBrazilianIsoDate, toUtcDateBoundaryIso } from "@/lib/date";
 import { normalizeParticipants } from "@/lib/sessionData";
+import type { EditableSessionFields } from "@/lib/sessionForm";
+import { registerSessionWithConsumption } from "@/lib/sessionRegistration";
+import type { SessionRegistrationInput } from "@/lib/sessionRegistration";
 
 type SessionRow = Database["public"]["Tables"]["session"]["Row"];
-type EditableSessionFields = Partial<Pick<Session,
-  "date" | "type" | "dirigente" | "explanador" | "leitor" |
-  "mestre_assistente" | "observation" | "participants" |
-  "total_participants" | "has_photo" | "has_audio"
->>;
 type UpdateSessionRpc = (
   functionName: "update_session_metadata",
   args: { p_session_id: string; p_updates: EditableSessionFields },
@@ -35,14 +35,23 @@ export interface SessionPage {
 }
 
 const sanitizeSearch = (value: string) =>
-  value.trim().slice(0, 100).replace(/[,%().]/g, " ");
+  value.trim().slice(0, MAX_SEARCH_LENGTH).replace(/[,%().]/g, " ");
 
-const mapSessions = (data: Array<{ participants: unknown; consumption: unknown }>) =>
-  data.map((session) => ({
-    ...session,
-    participants: normalizeParticipants(session.participants),
-    consumption: session.consumption as Consumption,
-  })) as Session[];
+const SESSION_LIST_QUERY_KEY = ["sessions"] as const;
+const SESSION_DETAIL_QUERY_KEY = ["session"] as const;
+const MAX_SEARCH_LENGTH = 100;
+
+// Cadastrar uma sessão abate estoque e pode criar membros (RPC
+// register_session_with_consumption), então todas essas listas mudam.
+const SESSION_REGISTRATION_QUERY_KEYS = [
+  SESSION_LIST_QUERY_KEY, ["vegetais"], ["stock_movements"], ["stock_forecast"], ["members"],
+] as const;
+
+const mapSession = (row: SessionRow): Session => ({
+  ...row,
+  participants: normalizeParticipants(row.participants),
+  consumption: row.consumption as unknown as Consumption,
+}) as Session;
 
 function buildSessionsQuery(filters?: SessionFilters, withCount = false) {
   let query = supabase
@@ -84,7 +93,7 @@ function buildSessionsQuery(filters?: SessionFilters, withCount = false) {
 
 export function useSessions(filters?: SessionFilters, enabled = true) {
   return useQuery({
-    queryKey: ["sessions", filters],
+    queryKey: [...SESSION_LIST_QUERY_KEY, filters],
     enabled,
     queryFn: async () => {
       const rows: SessionRow[] = [];
@@ -105,7 +114,7 @@ export function useSessions(filters?: SessionFilters, enabled = true) {
         offset += data.length;
       }
 
-      return mapSessions(rows);
+      return rows.map(mapSession);
     },
   });
 }
@@ -116,7 +125,7 @@ export function usePaginatedSessions(
   pageSize: number,
 ) {
   return useQuery({
-    queryKey: ["sessions", "page", filters, page, pageSize],
+    queryKey: [...SESSION_LIST_QUERY_KEY, "page", filters, page, pageSize],
     queryFn: async (): Promise<SessionPage> => {
       const offset = page * pageSize;
       const { data, error, count } = await buildSessionsQuery(filters, true)
@@ -130,14 +139,14 @@ export function usePaginatedSessions(
         });
       }
 
-      return { items: mapSessions(data || []), total: count || 0, page, pageSize };
+      return { items: (data || []).map(mapSession), total: count || 0, page, pageSize };
     },
   });
 }
 
 export function useSession(id: string | undefined) {
   return useQuery({
-    queryKey: ["session", id],
+    queryKey: [...SESSION_DETAIL_QUERY_KEY, id],
     queryFn: async () => {
       if (!id) return null;
       const { data, error } = await supabase
@@ -153,13 +162,7 @@ export function useSession(id: string | undefined) {
           entityId: id,
         });
       }
-      if (!data) return null;
-      
-      return {
-        ...data,
-        participants: normalizeParticipants(data.participants),
-        consumption: data.consumption as unknown as Consumption,
-      } as unknown as Session;
+      return data ? mapSession(data) : null;
     },
     enabled: !!id,
   });
@@ -168,9 +171,86 @@ export function useSession(id: string | undefined) {
 // Sessões com consumo são sempre criadas via registerSessionWithConsumption
 // (src/lib/sessionRegistration.ts), que chama a RPC register_session_with_consumption
 // e mantém o ledger de estoque (stock_movement) sincronizado atomicamente.
-// Um useCreateSession que fizesse INSERT direto em "session" bypassaria essa
-// RPC e dessincronizaria o estoque, então não existe aqui de propósito — não
-// adicione um sem passar pela RPC.
+// Não adicione um INSERT direto em "session": ele bypassaria essa RPC e
+// dessincronizaria o estoque.
+
+export function invalidateSessionRegistrationQueries(queryClient: QueryClient) {
+  return Promise.all(SESSION_REGISTRATION_QUERY_KEYS.map((queryKey) =>
+    queryClient.invalidateQueries({ queryKey })));
+}
+
+/** Para fluxos que cadastram várias sessões fora de useRegisterSession (ex.: importação CSV). */
+export function useInvalidateSessionRegistration() {
+  const queryClient = useQueryClient();
+  return useCallback(() => invalidateSessionRegistrationQueries(queryClient), [queryClient]);
+}
+
+function getRegistrationErrorMessage(error: unknown) {
+  if (typeof error === "object" && error !== null && "code" in error && error.code === "PGRST202") {
+    return "A função de registro ainda não está disponível no banco. Atualize as migrations do Supabase e tente novamente.";
+  }
+  return getErrorMessage(error);
+}
+
+export type SessionRegistrationOutcome = "created" | "duplicate";
+
+export function useRegisterSession() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ session, sources, memberNames }: {
+      session: SessionRegistrationInput;
+      sources: ConsumptionSource[];
+      memberNames: string[];
+    }): Promise<SessionRegistrationOutcome> => {
+      try {
+        await registerSessionWithConsumption(session, sources, memberNames);
+        return "created";
+      } catch (error) {
+        // Um duplo envio (ou outra aba) já gravou a sessão: não é falha.
+        if (getUniqueViolationEntity(error) === "session") return "duplicate";
+        throw error;
+      }
+    },
+    onSuccess: async (outcome) => {
+      await invalidateSessionRegistrationQueries(queryClient);
+      if (outcome === "duplicate") {
+        toast.warning("Esta sessão já foi registrada. Não foi criada uma nova duplicata.");
+      } else {
+        toast.success("Sessão registrada com sucesso!");
+      }
+    },
+    onError: (error) => {
+      toast.error("Erro ao registrar sessão: " + getRegistrationErrorMessage(error));
+    },
+  });
+}
+
+/**
+ * Cadastros feitos por outra conta não passam pelo cache deste navegador.
+ * Invalida as listas de sessões assim que o banco recebe uma inclusão,
+ * edição ou exclusão.
+ */
+export function useSessionChangesSubscription(channelName: string) {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "session" },
+        () => {
+          void queryClient.invalidateQueries({ queryKey: SESSION_LIST_QUERY_KEY });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [channelName, queryClient]);
+}
 
 export function useUpdateSession() {
   const queryClient = useQueryClient();
@@ -197,9 +277,12 @@ export function useUpdateSession() {
       }
       return data;
     },
+    // update_session_metadata recusa campos de consumo e não toca em
+    // stock_movement: lotes e movimentações não mudam. A previsão de estoque
+    // usa o histórico (datas/participantes) e as funções podem criar membros.
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      queryClient.invalidateQueries({ queryKey: ["session"] });
+      queryClient.invalidateQueries({ queryKey: SESSION_LIST_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: SESSION_DETAIL_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ["members"] });
       queryClient.invalidateQueries({ queryKey: ["stock_forecast"] });
       toast.success("Sessão atualizada!");
@@ -230,10 +313,9 @@ export function useDeleteSession() {
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      queryClient.invalidateQueries({ queryKey: ["session"] });
+      queryClient.invalidateQueries({ queryKey: SESSION_LIST_QUERY_KEY });
+      queryClient.invalidateQueries({ queryKey: SESSION_DETAIL_QUERY_KEY });
       queryClient.invalidateQueries({ queryKey: ["vegetais"] });
-      queryClient.invalidateQueries({ queryKey: ["vegetal"] });
       queryClient.invalidateQueries({ queryKey: ["stock_movements"] });
       queryClient.invalidateQueries({ queryKey: ["stock_forecast"] });
       toast.success("Sessão excluída e consumo de estoque revertido!");
@@ -242,24 +324,4 @@ export function useDeleteSession() {
       toast.error("Erro ao excluir sessão: " + getErrorMessage(error));
     },
   });
-}
-
-// Get unique names for autocomplete
-export function useUniqueNames() {
-  const { data: sessions } = useSessions();
-
-  const getUnique = (field: keyof Session) => {
-    if (!sessions) return [];
-    const names = sessions
-      .map((s) => s[field] as string)
-      .filter((name): name is string => !!name);
-    return [...new Set(names)].sort();
-  };
-
-  return {
-    dirigentes: getUnique("dirigente"),
-    explanadores: getUnique("explanador"),
-    leitores: getUnique("leitor"),
-    mestresAssistentes: getUnique("mestre_assistente"),
-  };
 }

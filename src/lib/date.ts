@@ -45,17 +45,21 @@ export function todayLocalIsoDate(): string {
 
 const BRAZIL_TIME_ZONE = "America/Fortaleza";
 
+// Criar um Intl.DateTimeFormat é caro; listas longas formatam milhares de datas.
+const brazilianDateTimeFormatter = new Intl.DateTimeFormat("pt-BR", {
+  timeZone: BRAZIL_TIME_ZONE,
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
 function getBrazilianDateParts(value: string | Date) {
-  return new Intl.DateTimeFormat("pt-BR", {
-    timeZone: BRAZIL_TIME_ZONE,
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date(value));
+  const parts = brazilianDateTimeFormatter.formatToParts(new Date(value));
+  return (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value;
 }
 
 /**
@@ -63,12 +67,9 @@ function getBrazilianDateParts(value: string | Date) {
  * usuários vejam o mesmo horário independentemente do fuso do dispositivo.
  */
 export function formatBrazilianDateTime(value: string | Date, includeSeconds = false): string {
-  const parts = getBrazilianDateParts(value);
-
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((item) => item.type === type)?.value;
-
-  return `${part("day")}/${part("month")}/${part("year")} às ${part("hour")}:${part("minute")}${includeSeconds ? `:${part("second")}` : ""}`;
+  const part = getBrazilianDateParts(value);
+  const seconds = includeSeconds ? `:${part("second")}` : "";
+  return `${part("day")}/${part("month")}/${part("year")} às ${part("hour")}:${part("minute")}${seconds}`;
 }
 
 export function todayBrazilianIsoDate(): string {
@@ -76,10 +77,7 @@ export function todayBrazilianIsoDate(): string {
 }
 
 export function brazilianIsoDate(value: string | Date): string {
-  const parts = getBrazilianDateParts(value);
-  const part = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((item) => item.type === type)?.value;
-
+  const part = getBrazilianDateParts(value);
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
@@ -103,7 +101,6 @@ export function brazilianDateBoundaryIso(value: string, nextDay = false): string
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return undefined;
 
   // Fortaleza está em UTC-3: meia-noite local equivale a 03:00 UTC.
   return new Date(Date.UTC(year, month - 1, day + (nextDay ? 1 : 0), 3)).toISOString();
