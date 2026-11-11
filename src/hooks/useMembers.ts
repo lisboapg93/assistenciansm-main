@@ -10,11 +10,28 @@ export interface Member {
   created_at: string;
 }
 
+export type MemberInput = Pick<Member, "name" | "grau" | "is_socio_nucleo">;
+
 const MEMBERS_PAGE_SIZE = 500;
+const MEMBERS_QUERY_KEY = ["members"] as const;
+
+async function findMemberByName(name: string, location: string) {
+  const { data, error } = await supabase
+    .from("members")
+    .select("id")
+    .eq("name", name)
+    .maybeSingle();
+
+  if (error) {
+    return logAndThrow(error, { location, operation: "read", entity: "members" });
+  }
+
+  return data;
+}
 
 export function useMembers() {
   return useQuery({
-    queryKey: ["members"],
+    queryKey: MEMBERS_QUERY_KEY,
     queryFn: async () => {
       const members: Member[] = [];
       let offset = 0;
@@ -55,20 +72,7 @@ export function useAddMember() {
       const trimmedName = name.trim();
       if (!trimmedName) return null;
 
-      // Check if name already exists
-      const { data: existing, error: lookupError } = await supabase
-        .from("members")
-        .select("id")
-        .eq("name", trimmedName)
-        .maybeSingle();
-
-      if (lookupError) {
-        return logAndThrow(lookupError, {
-          location: "useMembers.checkExistingBeforeCreate",
-          operation: "read",
-          entity: "members",
-        });
-      }
+      const existing = await findMemberByName(trimmedName, "useMembers.checkExistingBeforeCreate");
 
       if (existing) return existing;
 
@@ -91,8 +95,41 @@ export function useAddMember() {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["members"] });
+      queryClient.invalidateQueries({ queryKey: MEMBERS_QUERY_KEY });
     },
+  });
+}
+
+export function useSaveMember() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, member }: { id?: string; member: MemberInput }) => {
+      if (id) {
+        const { data, error } = await supabase.from("members")
+          .update(member).eq("id", id).select("id").maybeSingle();
+        if (error) throw error;
+        if (!data) throw new Error("Membro não encontrado ou sem permissão para atualizar.");
+      } else {
+        const { error } = await supabase.from("members").insert(member);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: MEMBERS_QUERY_KEY }); },
+  });
+}
+
+export function useDeleteMember() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { data, error } = await supabase.from("members")
+        .delete().eq("id", id).select("id").maybeSingle();
+      if (error) throw error;
+      if (!data) throw new Error("Membro já excluído ou sem permissão para excluir.");
+    },
+    onSuccess: () => { void queryClient.invalidateQueries({ queryKey: MEMBERS_QUERY_KEY }); },
   });
 }
 
@@ -101,19 +138,7 @@ export async function addMemberIfNotExists(name: string) {
   const trimmedName = name.trim();
   if (!trimmedName) return;
 
-  const { data: existing, error: lookupError } = await supabase
-    .from("members")
-    .select("id")
-    .eq("name", trimmedName)
-    .maybeSingle();
-
-  if (lookupError) {
-    return logAndThrow(lookupError, {
-      location: "addMemberIfNotExists.checkExisting",
-      operation: "read",
-      entity: "members",
-    });
-  }
+  const existing = await findMemberByName(trimmedName, "addMemberIfNotExists.checkExisting");
 
   if (!existing) {
     const { error } = await supabase.from("members").insert({ name: trimmedName });

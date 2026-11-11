@@ -27,6 +27,7 @@ export interface ErrorLogContext {
 const publicErrors = new WeakSet<Error>();
 
 const PORTUGUESE_PUBLIC_PREFIX = /^(?:não|nao|já|ja|preencha|informe|selecione|você|voce|sem permissão|quantidade|lote|fontes|uma ou mais|a mesma pessoa|o mestre|o explanador|o dirigente|o segundo|explanador e leitor|participantes|grupo de|total de|dados da|operação|a edição|a nova|sessão|esta sessão|este registro|o registro|a sessão|os dados|a quantidade|o consumo|saldo|estoque|tipo de sessão|transmissão|transmissao)(?:\s|$|[.:])/iu;
+const DOMAIN_VALIDATION_PREFIX = /^(?:consumo (?:inválido|deve ser positivo)|tipo de movimentação inválido|a transmissão exige)(?:\s|$|[.:])/iu;
 const TECHNICAL_ENGLISH_ERROR = /\b(?:column|relation|function|table|schema|constraint|syntax|permission|operator|violates|does not exist|cannot|invalid input|error at|json object)\b/i;
 
 // Só repassa mensagens públicas que começam como texto de domínio em português.
@@ -34,7 +35,8 @@ const TECHNICAL_ENGLISH_ERROR = /\b(?:column|relation|function|table|schema|cons
 // do Postgres e não devem chegar ao usuário.
 function isPortugueseMessage(message: string): boolean {
   const normalized = message.trim().toLocaleLowerCase("pt-BR");
-  return PORTUGUESE_PUBLIC_PREFIX.test(normalized) && !TECHNICAL_ENGLISH_ERROR.test(message);
+  return (PORTUGUESE_PUBLIC_PREFIX.test(normalized) || DOMAIN_VALIDATION_PREFIX.test(normalized))
+    && !TECHNICAL_ENGLISH_ERROR.test(message);
 }
 
 export function getErrorMessage(error: unknown): string {

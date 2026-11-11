@@ -1,10 +1,17 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Vegetal } from "@/types/database";
 import { toast } from "sonner";
 import { getErrorMessage, logAndThrow } from "@/lib/errorLogging";
 
 type InventoryRpcError = { code?: string; message: string };
+interface StockForecast {
+  sessions_remaining: number;
+  months_remaining: number;
+}
+type StockForecastRpc = (
+  functionName: "get_stock_forecast",
+) => Promise<{ data: StockForecast | null; error: InventoryRpcError | null }>;
 type CreateVegetalRpc = (
   functionName: "create_vegetal_with_movement",
   args: { p_vegetal: Omit<Vegetal, "id" | "created_at" | "updated_at" | "is_archived"> },
@@ -21,10 +28,18 @@ type ChangeVegetalStockRpc = (
 ) => Promise<{ data: Vegetal | null; error: InventoryRpcError | null }>;
 
 const VEGETAIS_PAGE_SIZE = 1000;
+const VEGETAIS_QUERY_KEY = ["vegetais"] as const;
+const VEGETAL_QUERY_KEY = ["vegetal"] as const;
+
+function invalidateStockQueries(queryClient: QueryClient) {
+  for (const queryKey of [VEGETAIS_QUERY_KEY, ["stock_movements"], ["stock_forecast"]]) {
+    void queryClient.invalidateQueries({ queryKey });
+  }
+}
 
 export function useVegetais(showArchived = false) {
   return useQuery({
-    queryKey: ["vegetais", showArchived],
+    queryKey: [...VEGETAIS_QUERY_KEY, showArchived],
     queryFn: async () => {
       const vegetais: Vegetal[] = [];
       for (let offset = 0; ;) {
@@ -68,7 +83,7 @@ export function useVegetais(showArchived = false) {
 
 export function useVegetal(id: string | undefined) {
   return useQuery({
-    queryKey: ["vegetal", id],
+    queryKey: [...VEGETAL_QUERY_KEY, id],
     queryFn: async () => {
       if (!id) return null;
       const { data, error } = await supabase
@@ -87,6 +102,25 @@ export function useVegetal(id: string | undefined) {
       return data as Vegetal | null;
     },
     enabled: !!id,
+  });
+}
+
+export function useStockForecast(enabled: boolean) {
+  return useQuery({
+    queryKey: ["stock_forecast"],
+    enabled,
+    queryFn: async () => {
+      const rpc = supabase.rpc.bind(supabase) as unknown as StockForecastRpc;
+      const { data, error } = await rpc("get_stock_forecast");
+      if (error) {
+        return logAndThrow(error, {
+          location: "Estoque.getStockForecast",
+          operation: "read",
+          entity: "session",
+        });
+      }
+      return data;
+    },
   });
 }
 
@@ -114,10 +148,8 @@ export function useCreateVegetal() {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["vegetais"] });
-      queryClient.invalidateQueries({ queryKey: ["stock_movements"] });
-      queryClient.invalidateQueries({ queryKey: ["stock_forecast"] });
-      queryClient.invalidateQueries({ queryKey: ["members"] });
+      invalidateStockQueries(queryClient);
+      void queryClient.invalidateQueries({ queryKey: ["members"] });
       toast.success("Vegetal cadastrado com sucesso!");
     },
     onError: (error) => {
@@ -165,15 +197,13 @@ export function useUpdateVegetal() {
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["vegetais"] });
-      queryClient.invalidateQueries({ queryKey: ["vegetal"] });
-      queryClient.invalidateQueries({ queryKey: ["stock_movements"] });
-      queryClient.invalidateQueries({ queryKey: ["stock_forecast"] });
+      invalidateStockQueries(queryClient);
+      void queryClient.invalidateQueries({ queryKey: VEGETAL_QUERY_KEY });
       toast.success("Vegetal atualizado!");
     },
     onError: (error) => {
-      queryClient.invalidateQueries({ queryKey: ["vegetais"] });
-      queryClient.invalidateQueries({ queryKey: ["vegetal"] });
+      void queryClient.invalidateQueries({ queryKey: VEGETAIS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: VEGETAL_QUERY_KEY });
       toast.error("Erro ao atualizar: " + getErrorMessage(error));
     },
   });

@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { MemberAutocompleteInput } from "@/components/session/MemberAutocompleteInput";
+import { SessionContentStep, SessionParticipantsStep } from "@/components/session/SessionFormSteps";
+import { SessionConsumptionStep } from "@/components/session/SessionConsumptionStep";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -28,15 +28,16 @@ import {
 import { useVegetais } from "@/hooks/useVegetais";
 import { useMembers } from "@/hooks/useMembers";
 import { getMemberDisplayName } from "@/lib/memberDisplay";
-import { SESSION_TYPES, TYPES_WITH_EXPLANADOR_LEITOR, PARTICIPANT_LABELS, Participants, ConsumptionSource } from "@/types/database";
+import { SESSION_TYPES, TYPES_WITH_EXPLANADOR_LEITOR, Participants, ConsumptionSource } from "@/types/database";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { registerSessionWithConsumption } from "@/lib/sessionRegistration";
 import { getErrorMessage, getUniqueViolationEntity } from "@/lib/errorLogging";
 import { todayBrazilianIsoDate } from "@/lib/date";
-import { isStockQuantity, sumStockQuantities } from "@/lib/stockQuantity";
+import { sumStockQuantities } from "@/lib/stockQuantity";
+import { getConsumptionValidationError } from "@/lib/sessionConsumptionValidation";
 import { QueryError } from "@/components/QueryError";
-import { areParticipantsValid, MAX_PARTICIPANTS } from "@/lib/sessionData";
+import { allowsTransmission, areParticipantsValid, formatTransmissionObservation } from "@/lib/sessionData";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   getDirigenteRuleDescription,
@@ -150,52 +151,28 @@ export default function NovaSessao() {
   const totalAvailable = sumStockQuantities(sourceQuantities.map(({ source, currentQuantity }) =>
     Math.min(source.amount_available, currentQuantity),
   ));
-  const selectableVegetais = [
-    ...(vegetais || []).filter((vegetal) =>
-      Number(vegetal.quantity) > 0 || consumptionData.sources.some((source) => source.vegetal_id === vegetal.id),
-    ),
-    ...consumptionData.sources
-      .filter((source) => !vegetalById.has(source.vegetal_id))
-      .map((source) => ({ id: source.vegetal_id, name: source.vegetal_name, quantity: 0 })),
-  ];
+  const consumptionValidationInput = {
+    sources: consumptionData.sources,
+    isUnited: consumptionData.is_united,
+    totalConsumed: Number(consumptionData.total_consumed),
+    totalAvailable,
+    hasSourceQuantityMismatch,
+  };
   const isNonBlank = (value: string) => value.trim().length > 0;
 
   const showExplanadorLeitor = TYPES_WITH_EXPLANADOR_LEITOR.includes(basicData.type);
-  const showTransmissaoOption = ['Primeira Escala', 'Segunda Escala', 'Extra'].includes(basicData.type);
+  const showTransmissaoOption = allowsTransmission(basicData.type);
 
-  const handleAddSource = (vegetalId: string) => {
-    const vegetal = vegetais?.find((v) => v.id === vegetalId);
-    if (!vegetal) return;
-
-    const exists = consumptionData.sources.find((s) => s.vegetal_id === vegetalId);
-    if (exists) {
-      setConsumptionData({
-        ...consumptionData,
-        sources: consumptionData.sources.filter((s) => s.vegetal_id !== vegetalId),
-      });
-    } else {
-      setConsumptionData({
-        ...consumptionData,
-        sources: [
-          ...consumptionData.sources,
-          {
-            vegetal_id: vegetal.id,
-            vegetal_name: vegetal.name,
-            amount_available: Number(vegetal.quantity),
-          },
-        ],
-      });
-    }
-  };
-
-  const handleSourceAmountChange = (vegetalId: string, amount: number) => {
-    setConsumptionData({
-      ...consumptionData,
-      sources: consumptionData.sources.map((s) =>
-        s.vegetal_id === vegetalId ? { ...s, amount_available: amount } : s
-      ),
-    });
-  };
+  const getRoleValidationError = () => getSessionRoleValidationError({
+    type: basicData.type,
+    dirigente: basicData.dirigente.trim(),
+    segundoDirigente: basicData.is_transmissao_assistencia ? basicData.segundo_dirigente.trim() : undefined,
+    explanador: showExplanadorLeitor ? basicData.explanador.trim() : undefined,
+    leitor: showExplanadorLeitor ? basicData.leitor.trim() : undefined,
+    mestreAssistente: basicData.mestre_assistente.trim(),
+    onlyQuadroDeMestre: basicData.is_transmissao_assistencia,
+    members: members || [],
+  });
 
   const handleSubmit = async () => {
     if (submittingRef.current) return;
@@ -221,48 +198,15 @@ export default function NovaSessao() {
       return;
     }
 
-    const roleValidationError = getSessionRoleValidationError({
-      type: basicData.type,
-      dirigente: basicData.dirigente.trim(),
-      segundoDirigente: basicData.is_transmissao_assistencia ? basicData.segundo_dirigente.trim() : undefined,
-      explanador: showExplanadorLeitor ? basicData.explanador.trim() : undefined,
-      leitor: showExplanadorLeitor ? basicData.leitor.trim() : undefined,
-      mestreAssistente: basicData.mestre_assistente.trim(),
-      onlyQuadroDeMestre: basicData.is_transmissao_assistencia,
-      members: members || [],
-    });
+    const roleValidationError = getRoleValidationError();
     if (roleValidationError) {
       toast.error(roleValidationError);
       return;
     }
 
-    if (consumptionData.sources.length === 0) {
-      toast.error("Selecione pelo menos um vegetal");
-      return;
-    }
-
-    if (!consumptionData.is_united && consumptionData.sources.length !== 1) {
-      toast.error("Selecione apenas um vegetal quando não houver união");
-      return;
-    }
-
-    if (consumptionData.sources.some((source) => !isStockQuantity(source.amount_available))) {
-      toast.error("Informe quantidades positivas com no máximo 2 casas decimais para cada vegetal.");
-      return;
-    }
-
-    if (hasSourceQuantityMismatch) {
-      toast.error("Um lote mudou de saldo. Desmarque e selecione-o novamente antes de salvar.");
-      return;
-    }
-
-    if (!isStockQuantity(totalConsumed)) {
-      toast.error("Informe consumo positivo com no máximo 2 casas decimais.");
-      return;
-    }
-
-    if (totalConsumed > totalAvailable) {
-      toast.error("Consumo maior que disponível");
+    const consumptionError = getConsumptionValidationError(consumptionValidationInput, "submit");
+    if (consumptionError) {
+      toast.error(consumptionError);
       return;
     }
 
@@ -276,14 +220,10 @@ export default function NovaSessao() {
         basicData.explanador,
       ].map((name) => name.trim()).filter(Boolean);
 
-      // Build observation with transmissão info
-      let fullObservation = contentData.observation || "";
-      if (basicData.is_transmissao_assistencia) {
-        const transmissaoInfo = `[Transmissão da Assistência - 2º Dirigente: ${basicData.segundo_dirigente.trim()}]`;
-        fullObservation = fullObservation 
-          ? `${transmissaoInfo}\n${fullObservation}` 
-          : transmissaoInfo;
-      }
+      const fullObservation = formatTransmissionObservation(
+        basicData.is_transmissao_assistencia ? basicData.segundo_dirigente.trim() : null,
+        contentData.observation,
+      );
 
       const sessionData = {
         date: basicData.date,
@@ -343,30 +283,13 @@ export default function NovaSessao() {
         if (basicData.is_transmissao_assistencia && !isNonBlank(basicData.segundo_dirigente)) {
           return "A transmissão exige segundo dirigente.";
         }
-        return getSessionRoleValidationError({
-          type: basicData.type,
-          dirigente: basicData.dirigente.trim(),
-          segundoDirigente: basicData.is_transmissao_assistencia ? basicData.segundo_dirigente.trim() : undefined,
-          explanador: showExplanadorLeitor ? basicData.explanador.trim() : undefined,
-          leitor: showExplanadorLeitor ? basicData.leitor.trim() : undefined,
-          mestreAssistente: basicData.mestre_assistente.trim(),
-          onlyQuadroDeMestre: basicData.is_transmissao_assistencia,
-          members: members || [],
-        });
+        return getRoleValidationError();
       case 2:
         return null;
       case 3:
         return participantsValid ? null : "Informe ao menos um participante e use quantidades inteiras não negativas.";
       case 4:
-        if (consumptionData.sources.length === 0) return "Selecione ao menos um lote de vegetal.";
-        if (!consumptionData.is_united && consumptionData.sources.length !== 1) return "Sem união, selecione apenas um lote.";
-        if (hasSourceQuantityMismatch) return "Um lote mudou de saldo. Desmarque e selecione-o novamente.";
-        if (!consumptionData.sources.every((source) => isStockQuantity(source.amount_available))) {
-          return "Informe quantidades positivas com até duas casas decimais.";
-        }
-        if (!isStockQuantity(Number(consumptionData.total_consumed))) return "Informe consumo positivo com até duas casas decimais.";
-        if (Number(consumptionData.total_consumed) > totalAvailable) return "Consumo maior que saldo disponível.";
-        return null;
+        return getConsumptionValidationError(consumptionValidationInput, "step");
       default:
         return "Passo inválido.";
     }
@@ -466,7 +389,7 @@ export default function NovaSessao() {
                     <Select
                       value={basicData.type}
                       onValueChange={(value) => {
-                        const allowsTransmissao = ['Primeira Escala', 'Segunda Escala', 'Extra'].includes(value);
+                        const allowsTransmissao = allowsTransmission(value);
                         setBasicData({ 
                           ...basicData, 
                           type: value,
@@ -607,225 +530,24 @@ export default function NovaSessao() {
               </div>
             )}
 
-            {/* Step 2: Content */}
             {currentStep === 2 && (
-              <div className="space-y-4">
-                <div className="flex flex-wrap gap-6">
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="has_photo"
-                      checked={contentData.has_photo}
-                      onCheckedChange={(checked) =>
-                        setContentData({
-                          ...contentData,
-                          has_photo: checked as boolean,
-                        })
-                      }
-                    />
-                    <Label htmlFor="has_photo" className="cursor-pointer">
-                      Registro Fotográfico
-                    </Label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="has_audio"
-                      checked={contentData.has_audio}
-                      onCheckedChange={(checked) =>
-                        setContentData({
-                          ...contentData,
-                          has_audio: checked as boolean,
-                        })
-                      }
-                    />
-                    <Label htmlFor="has_audio" className="cursor-pointer">
-                      Registro de Áudio
-                    </Label>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Acontecimento na Sessão</Label>
-                  <Textarea
-                    value={contentData.observation}
-                    onChange={(e) =>
-                      setContentData({ ...contentData, observation: e.target.value })
-                    }
-                    placeholder="Notas gerais..."
-                    rows={2}
-                  />
-                </div>
-              </div>
+              <SessionContentStep contentData={contentData} setContentData={setContentData} />
             )}
-
-            {/* Step 3: Participants */}
             {currentStep === 3 && (
-              <div className="space-y-6">
-                <div className="grid gap-4 grid-cols-2 md:grid-cols-3">
-                  {Object.entries(participants).map(([key, value]) => (
-                    <div key={key} className="space-y-2">
-                      <Label>{PARTICIPANT_LABELS[key as keyof typeof PARTICIPANT_LABELS]}</Label>
-                      <Input
-                        type="number"
-                        min="0"
-                        max={MAX_PARTICIPANTS}
-                        value={value || ""}
-                        onChange={(e) =>
-                          setParticipants({
-                            ...participants,
-                            [key]: Number(e.target.value),
-                          })
-                        }
-                        placeholder="0"
-                      />
-                    </div>
-                  ))}
-                </div>
-                <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
-                  <p className="text-sm text-muted-foreground">
-                    Total de Participantes
-                  </p>
-                  <p className="text-2xl font-bold text-primary">
-                    {totalParticipants}
-                  </p>
-                </div>
-              </div>
+              <SessionParticipantsStep
+                participants={participants}
+                setParticipants={setParticipants}
+                totalParticipants={totalParticipants}
+              />
             )}
 
-            {/* Step 4: Consumption */}
             {currentStep === 4 && (
-              <div className="space-y-6">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <Label>Selecionar Vegetais</Label>
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        id="is_united"
-                        checked={consumptionData.is_united}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setConsumptionData({ ...consumptionData, is_united: true });
-                            return;
-                          }
-
-                          const firstSource = consumptionData.sources[0];
-                          const vegetal = firstSource ? vegetalById.get(firstSource.vegetal_id) : undefined;
-                          setConsumptionData({
-                            ...consumptionData,
-                            is_united: false,
-                            sources: firstSource
-                              ? [{ ...firstSource, amount_available: vegetal ? Number(vegetal.quantity) : 0 }]
-                              : [],
-                          });
-                        }}
-                      />
-                      <Label htmlFor="is_united" className="text-sm">
-                        Vegetal Unido
-                      </Label>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2 max-h-48 overflow-y-auto">
-                    {selectableVegetais.map((vegetal) => {
-                        const isSelected = consumptionData.sources.some(
-                          (s) => s.vegetal_id === vegetal.id
-                        );
-                        const source = consumptionData.sources.find(
-                          (s) => s.vegetal_id === vegetal.id
-                        );
-
-                        return (
-                          <div
-                            key={vegetal.id}
-                            className={cn(
-                              "flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors",
-                              isSelected
-                                ? "border-primary bg-primary/5"
-                                : "border-border hover:bg-muted/50"
-                            )}
-                            onClick={() => handleAddSource(vegetal.id)}
-                          >
-                            <Checkbox checked={isSelected} />
-                            <div className="flex-1 min-w-0">
-                              <p className="font-medium truncate">{vegetal.name}</p>
-                              <p className="text-sm text-muted-foreground">
-                                Disponível: {Number(vegetal.quantity).toFixed(2)} L
-                                {isSelected && Number(vegetal.quantity) <= 0 ? " — desmarque este lote" : ""}
-                              </p>
-                            </div>
-                            {isSelected && consumptionData.is_united && (
-                              <Input
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                max={vegetal.quantity}
-                                value={source?.amount_available || ""}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                  handleSourceAmountChange(
-                                    vegetal.id,
-                                    parseFloat(e.target.value) || 0
-                                  )
-                                }
-                                className="w-24"
-                                placeholder="Qtd"
-                              />
-                            )}
-                          </div>
-                        );
-                    })}
-                  </div>
-                </div>
-
-                {consumptionData.sources.length > 0 && (
-                  <div className="space-y-4 p-4 rounded-lg bg-muted/50">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">
-                        Total disponibilizado:
-                      </span>
-                      <span className="font-medium">
-                        {totalAvailable.toFixed(2)} L
-                      </span>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label>
-                        Total Consumido (L){" "}
-                        <span className="text-destructive">*</span>
-                      </Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        max={totalAvailable}
-                        value={consumptionData.total_consumed}
-                        onChange={(e) =>
-                          setConsumptionData({
-                            ...consumptionData,
-                            total_consumed: e.target.value,
-                          })
-                        }
-                        placeholder="Ex: 2.5"
-                      />
-                    </div>
-
-                    {consumptionData.is_united &&
-                      parseFloat(consumptionData.total_consumed) > 0 && (
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">
-                            Saldo (novo vegetal):
-                          </span>
-                          <span className="font-medium text-primary">
-                            {(
-                              totalAvailable -
-                              parseFloat(consumptionData.total_consumed || "0")
-                            ).toFixed(2)}{" "}
-                            L
-                          </span>
-                        </div>
-                      )}
-
-                  </div>
-                )}
-              </div>
+              <SessionConsumptionStep
+                vegetais={vegetais}
+                consumptionData={consumptionData}
+                setConsumptionData={setConsumptionData}
+                totalAvailable={totalAvailable}
+              />
             )}
           </CardContent>
         </Card>

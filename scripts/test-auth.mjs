@@ -98,7 +98,7 @@ try {
       await page.goto(`${baseUrl}/membros`);
       await expectHome(page, role);
     }
-    await page.getByRole("button", { name: "Sair", exact: true }).click();
+    await page.getByRole("button", { name: "Sair da conta", exact: true }).click();
     await page.getByRole("button", { name: "Entrar", exact: true }).waitFor();
     checkErrors(state);
     console.log(`Login único, atividade antiga, rotas e logout (${role}): OK`);
@@ -170,7 +170,7 @@ try {
     await expectHome(second, "assistant");
     let release;
     state.logoutGate = new Promise(resolve => { release = resolve; });
-    await page.getByRole("button", { name: "Sair", exact: true }).click();
+    await page.getByRole("button", { name: "Sair da conta", exact: true }).click();
     await page.getByRole("button", { name: "Entrar", exact: true }).waitFor();
     release();
     await second.getByRole("button", { name: "Entrar", exact: true }).waitFor();

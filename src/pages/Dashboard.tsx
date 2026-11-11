@@ -19,7 +19,8 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { parseDbDateToLocal } from "@/lib/date";
-import { getMemberDisplayName, isMemberName } from "@/lib/memberDisplay";
+import { getMemberDisplayName } from "@/lib/memberDisplay";
+import { getMembersWithoutParticipation } from "@/lib/memberParticipation";
 import { useVegetais } from "@/hooks/useVegetais";
 import { QueryError } from "@/components/QueryError";
 
@@ -44,29 +45,10 @@ export default function Dashboard() {
   const [modalOpen, setModalOpen] = useState<ModalType>(null);
   const [grauFilters, setGrauFilters] = useState<string[]>([]);
 
-  // Calculate sócios do núcleo who haven't participated
-  const sociosNaoParticiparam = useMemo(() => {
-    const sociosNucleo = members?.filter(m => m.is_socio_nucleo) || [];
-    
-    // Get all unique explanadores and leitores from sessions
-    const explanadores: string[] = [];
-    const leitores: string[] = [];
-    
-    sessions?.forEach(s => {
-      if (s.explanador) explanadores.push(s.explanador);
-      if (s.leitor) leitores.push(s.leitor);
-    });
-
-    const naoExplanaram = sociosNucleo.filter(
-      m => !explanadores.some((name) => isMemberName(m, name))
-    ).sort((a, b) => getMemberDisplayName(a).localeCompare(getMemberDisplayName(b), "pt-BR"));
-
-    const naoLeram = sociosNucleo.filter(
-      m => !leitores.some((name) => isMemberName(m, name))
-    ).sort((a, b) => getMemberDisplayName(a).localeCompare(getMemberDisplayName(b), "pt-BR"));
-
-    return { naoExplanaram, naoLeram };
-  }, [members, sessions]);
+  const sociosNaoParticiparam = useMemo(
+    () => getMembersWithoutParticipation(members, sessions),
+    [members, sessions],
+  );
 
   const queries = [sessionQuery, memberQuery, vegetalQuery];
   const failedQuery = queries.find((query) => query.isError && query.data === undefined);

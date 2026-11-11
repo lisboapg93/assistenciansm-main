@@ -4,8 +4,8 @@ import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { SessionContentStep } from "@/components/session/SessionFormSteps";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
@@ -40,10 +40,7 @@ import {
 } from "@/lib/sessionRoleEligibility";
 import { cn } from "@/lib/utils";
 import { QueryError } from "@/components/QueryError";
-import { areParticipantsValid, MAX_PARTICIPANTS } from "@/lib/sessionData";
-
-const TRANSMISSION_TYPES = ["Primeira Escala", "Segunda Escala", "Extra"];
-const TRANSMISSION_PREFIX = /^\[Transmissão da Assistência - 2º Dirigente: ([^\]\r\n]+)\](?:\r?\n)?/;
+import { allowsTransmission, areParticipantsValid, formatTransmissionObservation, MAX_PARTICIPANTS, parseTransmissionObservation } from "@/lib/sessionData";
 
 const hasSameRoleValue = (current: string | null | undefined, original: string | null | undefined) =>
   getMemberIdentityKey(current || "") === getMemberIdentityKey(original || "");
@@ -106,14 +103,14 @@ export default function EditarSessao() {
     if (isNewSession || membersJustArrived) {
       initializedRef.current = { sessionId: session.id, hasMembers: !!members };
       const observation = session.observation || "";
-      const transmission = TRANSMISSION_PREFIX.exec(observation);
-      const allowsTransmission = TRANSMISSION_TYPES.includes(session.type);
+      const transmission = parseTransmissionObservation(observation);
+      const transmissionAllowed = allowsTransmission(session.type);
       setBasicData({
         date: session.date.slice(0, 10),
         type: session.type,
-        is_transmissao_assistencia: Boolean(transmission && allowsTransmission),
-        segundo_dirigente: transmission && allowsTransmission
-          ? transmission[1].trim()
+        is_transmissao_assistencia: Boolean(transmission.segundoDirigente !== null && transmissionAllowed),
+        segundo_dirigente: transmission.segundoDirigente !== null && transmissionAllowed
+          ? transmission.segundoDirigente
           : "",
         dirigente: session.dirigente,
         explanador: session.explanador || "",
@@ -123,19 +120,19 @@ export default function EditarSessao() {
       setContentData({
         has_photo: session.has_photo,
         has_audio: session.has_audio,
-        observation: transmission ? observation.slice(transmission[0].length) : observation,
+        observation: transmission.observation,
       });
       setParticipants(session.participants);
     }
   }, [session, members]);
 
   const showExplanadorLeitor = TYPES_WITH_EXPLANADOR_LEITOR.includes(basicData.type);
-  const showTransmissaoOption = TRANSMISSION_TYPES.includes(basicData.type);
+  const showTransmissaoOption = allowsTransmission(basicData.type);
   const totalParticipants = Object.values(participants).reduce((a, b) => a + b, 0);
   const participantsValid = areParticipantsValid(participants);
   const originalObservation = session?.observation || "";
-  const originalTransmission = TRANSMISSION_PREFIX.exec(originalObservation);
-  const originalSegundoDirigente = originalTransmission?.[1]?.trim() || "";
+  const originalTransmission = parseTransmissionObservation(originalObservation);
+  const originalSegundoDirigente = originalTransmission.segundoDirigente || "";
   const nextExplanador = showExplanadorLeitor ? basicData.explanador : null;
   const nextLeitor = showExplanadorLeitor ? basicData.leitor : null;
   const dirigenteChanged = !hasSameRoleValue(basicData.dirigente, session?.dirigente);
@@ -152,7 +149,7 @@ export default function EditarSessao() {
     mestreAssistente: basicData.mestre_assistente,
   }, {
     type: session?.type || "",
-    isTransmissaoAssistencia: Boolean(originalTransmission),
+    isTransmissaoAssistencia: originalTransmission.segundoDirigente !== null,
     dirigente: session?.dirigente || "",
     segundoDirigente: originalSegundoDirigente,
     explanador: session?.explanador,
@@ -211,10 +208,10 @@ export default function EditarSessao() {
       return;
     }
 
-    const transmissionPrefix = basicData.is_transmissao_assistencia
-      ? `[Transmissão da Assistência - 2º Dirigente: ${basicData.segundo_dirigente}]`
-      : "";
-    const fullObservation = [transmissionPrefix, contentData.observation.trim()].filter(Boolean).join("\n");
+    const fullObservation = formatTransmissionObservation(
+      basicData.is_transmissao_assistencia ? basicData.segundo_dirigente : null,
+      contentData.observation.trim(),
+    );
     const updates = {
       date: basicData.date,
       type: basicData.type,
@@ -321,12 +318,12 @@ export default function EditarSessao() {
                 <Select
                   value={basicData.type}
                   onValueChange={(value) => {
-                    const allowsTransmission = TRANSMISSION_TYPES.includes(value);
+                    const transmissionAllowed = allowsTransmission(value);
                     setBasicData({
                       ...basicData,
                       type: value,
-                      is_transmissao_assistencia: allowsTransmission && basicData.is_transmissao_assistencia,
-                      segundo_dirigente: allowsTransmission ? basicData.segundo_dirigente : "",
+                      is_transmissao_assistencia: transmissionAllowed && basicData.is_transmissao_assistencia,
+                      segundo_dirigente: transmissionAllowed ? basicData.segundo_dirigente : "",
                     });
                   }}
                 >
@@ -471,44 +468,13 @@ export default function EditarSessao() {
           <CardHeader>
             <CardTitle>Conteúdo</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex flex-wrap gap-6">
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="has_photo"
-                  checked={contentData.has_photo}
-                  onCheckedChange={(checked) =>
-                    setContentData({ ...contentData, has_photo: checked as boolean })
-                  }
-                />
-                <Label htmlFor="has_photo" className="cursor-pointer">
-                  Registro Fotográfico
-                </Label>
-              </div>
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="has_audio"
-                  checked={contentData.has_audio}
-                  onCheckedChange={(checked) =>
-                    setContentData({ ...contentData, has_audio: checked as boolean })
-                  }
-                />
-                <Label htmlFor="has_audio" className="cursor-pointer">
-                  Registro de Áudio
-                </Label>
-              </div>
-            </div>
-            <div className="space-y-2">
-              <Label>Acontecimento na Sessão</Label>
-              <Textarea
-                value={contentData.observation}
-                onChange={(e) =>
-                  setContentData({ ...contentData, observation: e.target.value })
-                }
-                placeholder="Observações gerais..."
-                rows={3}
-              />
-            </div>
+          <CardContent>
+            <SessionContentStep
+              contentData={contentData}
+              setContentData={setContentData}
+              placeholder="Observações gerais..."
+              rows={3}
+            />
           </CardContent>
         </Card>
 

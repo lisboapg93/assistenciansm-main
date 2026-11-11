@@ -60,8 +60,12 @@ assert.equal(getSessionRoleValidationError({
 }), null);
 assert.match(getSessionRoleValidationError({
   type: "Primeira Escala", dirigente: "M. João", leitor: "Mestre Joao", members: [],
-  validateEligibility: { dirigente: false },
+  validateEligibility: { dirigente: false, leitor: true },
 }), /mesma pessoa/);
+assert.equal(getSessionRoleValidationError({
+  type: "Primeira Escala", dirigente: "M. João", leitor: "Mestre Joao", members: [],
+  validateEligibility: { dirigente: false, leitor: false },
+}), null);
 assert.match(getSessionRoleValidationError({
   type: "Primeira Escala", dirigente: "M. João", members: [],
   validateEligibility: { dirigente: true },

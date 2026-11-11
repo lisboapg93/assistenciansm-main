@@ -1,36 +1,9 @@
 import { useMemo } from "react";
-import { useVegetais } from "./useVegetais";
-import { Session } from "@/types/database";
-import {
-  MemberDisplayData,
-  getMemberDisplayName,
-  getMemberIdentityKey,
-} from "@/lib/memberDisplay";
-
-interface StatisticsFilters {
-  year?: number;
-  type?: string;
-}
-
-interface StatisticsResult {
-  totalStock: number;
-  totalSessions: number;
-  totalConsumed: number;
-  averageConsumption: number;
-  averageConsumptionPerMember: number;
-  averageParticipants: number;
-  sessionsRemaining: number;
-  monthsRemaining: number;
-  frequencyDays: number;
-  sessionsByType: Record<string, number>;
-  topDirigentes: { name: string; count: number }[];
-  topExplanadores: { name: string; count: number }[];
-  topLeitores: { name: string; count: number }[];
-  recentDirigentes: { name: string; date: string; type: string }[];
-  recentExplanadores: { name: string; date: string; type: string }[];
-  recentLeitores: { name: string; date: string; type: string }[];
-  sequenciaMestresAssistentes: { name: string; date: string; type: string }[];
-}
+import { useVegetais } from "@/hooks/useVegetais";
+import { calculateStatistics } from "@/lib/statistics";
+import type { StatisticsFilters, StatisticsResult } from "@/lib/statistics";
+import type { MemberDisplayData } from "@/lib/memberDisplay";
+import type { Session } from "@/types/database";
 
 export function useStatistics(
   sessions: Session[] | undefined,
@@ -38,141 +11,10 @@ export function useStatistics(
   members?: MemberDisplayData[],
 ): StatisticsResult {
   const { data: vegetais } = useVegetais();
+  const type = filters?.type;
 
-  return useMemo(() => {
-    const displayNamesByIdentity = new Map(
-      (members || []).map((member) => {
-        const displayName = getMemberDisplayName(member);
-        return [getMemberIdentityKey(displayName), displayName];
-      }),
-    );
-    const getDisplayName = (name: string) =>
-      displayNamesByIdentity.get(getMemberIdentityKey(name)) ?? name;
-
-    // Apply type filter if provided
-    let filteredSessions = sessions || [];
-    if (filters?.type) {
-      filteredSessions = filteredSessions.filter(s => s.type === filters.type);
-    }
-
-    if (filteredSessions.length === 0) {
-      return {
-        totalStock: vegetais?.reduce((sum, v) => sum + Number(v.quantity), 0) || 0,
-        totalSessions: 0,
-        totalConsumed: 0,
-        averageConsumption: 0,
-        averageConsumptionPerMember: 0,
-        averageParticipants: 0,
-        sessionsRemaining: 0,
-        monthsRemaining: 0,
-        frequencyDays: 0,
-        sessionsByType: {},
-        topDirigentes: [],
-        topExplanadores: [],
-        topLeitores: [],
-        recentDirigentes: [],
-        recentExplanadores: [],
-        recentLeitores: [],
-        sequenciaMestresAssistentes: [],
-      };
-    }
-
-    const totalStock = vegetais?.reduce((sum, v) => sum + Number(v.quantity), 0) || 0;
-    const totalSessions = filteredSessions.length;
-    const totalConsumed = filteredSessions.reduce(
-      (sum, s) => sum + (s.consumption?.total_consumed || 0),
-      0
-    );
-    const averageConsumption = totalConsumed / totalSessions;
-    const totalMemberAttendances = filteredSessions.reduce(
-      (sum, session) => sum + Number(session.participants?.socios || 0),
-      0
-    );
-    const averageConsumptionPerMember =
-      totalMemberAttendances > 0 ? totalConsumed / totalMemberAttendances : 0;
-    const averageParticipants =
-      filteredSessions.reduce((sum, s) => sum + s.total_participants, 0) / totalSessions;
-
-    // Calculate frequency
-    const dates = filteredSessions.map((s) => new Date(s.date).getTime()).sort((a, b) => a - b);
-    const totalDays =
-      dates.length > 1 ? (dates[dates.length - 1] - dates[0]) / (1000 * 60 * 60 * 24) : 0;
-    const frequencyDays = totalSessions > 1 ? Math.abs(totalDays / (totalSessions - 1)) || 30 : 30;
-
-    // Forecast
-    const sessionsRemaining = averageConsumption > 0 ? totalStock / averageConsumption : 0;
-    const monthsRemaining = (sessionsRemaining * frequencyDays) / 30.44;
-
-    // Sessions by type (always use ALL sessions, not filtered)
-    const sessionsByType: Record<string, number> = {};
-    (sessions || []).forEach((s) => {
-      sessionsByType[s.type] = (sessionsByType[s.type] || 0) + 1;
-    });
-
-    // Top participants by count
-    const countBy = (field: "dirigente" | "explanador" | "leitor") => {
-      const counts: Record<string, number> = {};
-      filteredSessions.forEach((s) => {
-        const name = s[field];
-        if (name) {
-          const displayName = getDisplayName(name);
-          counts[displayName] = (counts[displayName] || 0) + 1;
-        }
-      });
-      return Object.entries(counts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 5)
-        .map(([name, count]) => ({ name, count }));
-    };
-
-    // Recent participants by date (most recent first, including duplicates)
-    const recentBy = (field: "dirigente" | "explanador" | "leitor") => {
-      const sortedSessions = [...filteredSessions].sort(
-        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-      );
-      const result: { name: string; date: string; type: string }[] = [];
-      for (const s of sortedSessions) {
-        const name = s[field];
-        if (name) {
-          result.push({ name: getDisplayName(name), date: s.date, type: s.type });
-        }
-      }
-      return result;
-    };
-
-    // Sequência de Mestres Assistentes (nomes únicos, ordem do mais recente para o mais antigo)
-    const sortedByDateDesc = [...filteredSessions].sort(
-      (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
-    const seenAssistentes = new Set<string>();
-    const sequenciaMestresAssistentes: { name: string; date: string; type: string }[] = [];
-    for (const s of sortedByDateDesc) {
-      const name = s.mestre_assistente;
-      const displayName = name ? getDisplayName(name) : "";
-      if (displayName && !seenAssistentes.has(displayName)) {
-        seenAssistentes.add(displayName);
-        sequenciaMestresAssistentes.push({ name: displayName, date: s.date, type: s.type });
-      }
-    }
-
-    return {
-      totalStock,
-      totalSessions,
-      totalConsumed,
-      averageConsumption,
-      averageConsumptionPerMember,
-      averageParticipants,
-      sessionsRemaining,
-      monthsRemaining,
-      frequencyDays,
-      sessionsByType,
-      topDirigentes: countBy("dirigente"),
-      topExplanadores: countBy("explanador"),
-      topLeitores: countBy("leitor"),
-      recentDirigentes: recentBy("dirigente"),
-      recentExplanadores: recentBy("explanador"),
-      recentLeitores: recentBy("leitor"),
-      sequenciaMestresAssistentes,
-    };
-  }, [sessions, vegetais, filters?.type, members]);
+  return useMemo(
+    () => calculateStatistics(sessions, vegetais, { type }, members),
+    [sessions, vegetais, type, members],
+  );
 }

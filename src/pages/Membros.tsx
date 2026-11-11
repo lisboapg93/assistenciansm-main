@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { MainLayout } from "@/components/layout/MainLayout";
-import { useMembers } from "@/hooks/useMembers";
-import { supabase } from "@/integrations/supabase/client";
-import { useQueryClient } from "@tanstack/react-query";
+import { useDeleteMember, useMembers, useSaveMember } from "@/hooks/useMembers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -62,7 +60,8 @@ interface MemberForm {
 
 export default function Membros() {
   const { data: members, isLoading, isError, error: queryError, refetch } = useMembers();
-  const queryClient = useQueryClient();
+  const saveMember = useSaveMember();
+  const deleteMember = useDeleteMember();
   
   const [search, setSearch] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -129,27 +128,8 @@ export default function Membros() {
 
     setIsSaving(true);
     try {
-      if (editingMember) {
-        const { data, error } = await supabase
-          .from("members")
-          .update(memberData)
-          .eq("id", editingMember.id)
-          .select("id")
-          .maybeSingle();
-
-        if (error) throw error;
-        if (!data) throw new Error("Membro não encontrado ou sem permissão para atualizar.");
-        toast.success("Membro atualizado com sucesso");
-      } else {
-        const { error } = await supabase
-          .from("members")
-          .insert(memberData);
-
-        if (error) throw error;
-        toast.success("Membro adicionado com sucesso");
-      }
-
-      queryClient.invalidateQueries({ queryKey: ["members"] });
+      await saveMember.mutateAsync({ id: editingMember?.id, member: memberData });
+      toast.success(editingMember ? "Membro atualizado com sucesso" : "Membro adicionado com sucesso");
       setIsDialogOpen(false);
     } catch (error: unknown) {
       await logApplicationError(error, {
@@ -171,17 +151,8 @@ export default function Membros() {
     if (!deletingMember) return;
 
     try {
-      const { data, error } = await supabase
-        .from("members")
-        .delete()
-        .eq("id", deletingMember.id)
-        .select("id")
-        .maybeSingle();
-
-      if (error) throw error;
-      if (!data) throw new Error("Membro já excluído ou sem permissão para excluir.");
+      await deleteMember.mutateAsync(deletingMember.id);
       toast.success("Membro excluído com sucesso");
-      queryClient.invalidateQueries({ queryKey: ["members"] });
     } catch (error: unknown) {
       await logApplicationError(error, {
         location: "Membros.delete",

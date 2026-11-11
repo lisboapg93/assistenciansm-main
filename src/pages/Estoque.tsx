@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { MainLayout } from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,7 +21,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Plus, Droplets, Calendar, TrendingDown, Search, Eye } from "lucide-react";
-import { useVegetais, useTotalStock } from "@/hooks/useVegetais";
+import { useVegetais, useTotalStock, useStockForecast } from "@/hooks/useVegetais";
 import { useSessions } from "@/hooks/useSessions";
 import { useStatistics } from "@/hooks/useStatistics";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,18 +34,7 @@ import { VegetalDetailModal } from "@/components/vegetal/VegetalDetailModal";
 import { useAuthContext } from "@/contexts/AuthContext";
 import { useMembers } from "@/hooks/useMembers";
 import { getMemberDisplayNameForValue } from "@/lib/memberDisplay";
-import { supabase } from "@/integrations/supabase/client";
-import { logAndThrow } from "@/lib/errorLogging";
 import { QueryError } from "@/components/QueryError";
-
-interface StockForecast {
-  sessions_remaining: number;
-  months_remaining: number;
-}
-
-type StockForecastRpc = (
-  functionName: "get_stock_forecast",
-) => Promise<{ data: StockForecast | null; error: { message: string } | null }>;
 
 export default function Estoque() {
   const { isEditor, isAssistant } = useAuthContext();
@@ -63,22 +51,7 @@ export default function Estoque() {
   const { data: members } = memberQuery;
   const totalStock = useTotalStock();
   const stats = useStatistics(isAssistant ? undefined : sessions, undefined, members);
-  const { data: assistantForecast, isError: forecastError } = useQuery({
-    queryKey: ["stock_forecast"],
-    enabled: isAssistant,
-    queryFn: async () => {
-      const rpc = supabase.rpc.bind(supabase) as unknown as StockForecastRpc;
-      const { data, error } = await rpc("get_stock_forecast");
-      if (error) {
-        return logAndThrow(error, {
-          location: "Estoque.getStockForecast",
-          operation: "read",
-          entity: "session",
-        });
-      }
-      return data;
-    },
-  });
+  const { data: assistantForecast, isError: forecastError } = useStockForecast(isAssistant);
   const sessionsRemaining = isAssistant
     ? Number(assistantForecast?.sessions_remaining || 0)
     : stats.sessionsRemaining;

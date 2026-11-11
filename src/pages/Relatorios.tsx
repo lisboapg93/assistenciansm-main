@@ -47,9 +47,8 @@ import { useMembers } from "@/hooks/useMembers";
 import { getMemberDisplayNameForValue } from "@/lib/memberDisplay";
 import { SESSION_TYPES, MovementType } from "@/types/database";
 import { Skeleton } from "@/components/ui/skeleton";
-import { format } from "date-fns";
-import { ptBR } from "date-fns/locale";
-import { brazilianDateBoundaryIso, brazilianIsoDate, parseDbDateToLocal } from "@/lib/date";
+import { brazilianIsoDate } from "@/lib/date";
+import { getMovementsByType, getStockEvolution } from "@/lib/stockReports";
 import { QueryError } from "@/components/QueryError";
 
 const currentYear = Number(brazilianIsoDate(new Date()).slice(0, 4));
@@ -73,12 +72,6 @@ const MOVEMENT_COLORS: Record<MovementType, string> = {
   Consumo: "hsl(0, 72%, 51%)",
   Ajuste: "hsl(200, 80%, 50%)",
   Saldo: "hsl(280, 70%, 50%)",
-};
-
-const movementEffect = (type: MovementType, quantity: number) => {
-  if (type === "Entrada" || type === "Saldo") return Math.abs(quantity);
-  if (type === "Ajuste") return -quantity;
-  return -Math.abs(quantity);
 };
 
 export default function Relatorios() {
@@ -111,112 +104,14 @@ export default function Relatorios() {
     ([name, value]) => ({ name, value })
   );
 
-  // Movements by type chart data
-  const movementsByTypeData = useMemo(() => {
-    if (!movements) return [];
-    
-    const yearMovements = movements.filter((m) => {
-      const moveYear = Number(brazilianIsoDate(m.date).slice(0, 4));
-      return moveYear === year;
-    });
-
-    const counts: Record<string, { type: string; quantidade: number; litros: number }> = {};
-    const consumedSessions = new Set<string>();
-    yearMovements.forEach((m) => {
-      if (!counts[m.type]) {
-        counts[m.type] = { type: m.type, quantidade: 0, litros: 0 };
-      }
-      counts[m.type].quantidade += 1;
-      if (m.type !== "Consumo" || !m.session_id || consumedSessions.has(m.session_id)) {
-        counts[m.type].litros += m.type === "Consumo" && m.session_id
-          ? 0
-          : Math.abs(m.quantity);
-        return;
-      }
-
-      consumedSessions.add(m.session_id);
-      counts[m.type].litros += consumptionBySessionId.get(m.session_id) ?? Math.abs(m.quantity);
-    });
-
-    return Object.values(counts).sort((a, b) => b.litros - a.litros);
-  }, [movements, year, consumptionBySessionId]);
-
-  // Monthly flows and cumulative balance for the selected year.
-  const stockEvolutionData = useMemo(() => {
-    if (!movements) return [];
-
-    const yearStart = new Date(brazilianDateBoundaryIso(`${year}-01-01`)!).getTime();
-    let accumulatedBalance = movements
-      .filter((m) => new Date(m.date).getTime() < yearStart)
-      .reduce((sum, m) => sum + movementEffect(m.type, Number(m.quantity)), 0);
-
-    const yearMovements = movements
-      .filter((m) => Number(brazilianIsoDate(m.date).slice(0, 4)) === year)
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-    if (yearMovements.length === 0) return [];
-
-    // Group by month
-    const monthlyData: Record<string, {
-      month: string;
-      entrada: number;
-      saida: number;
-      consumo: number;
-      ledgerDelta: number;
-    }> = {};
-    const consumedSessions = new Set<string>();
-
-    yearMovements.forEach((m) => {
-      const calendarDate = brazilianIsoDate(m.date);
-      const monthIndex = Number(calendarDate.slice(5, 7)) - 1;
-      const monthKey = String(monthIndex).padStart(2, "0");
-      if (!monthlyData[monthKey]) {
-        monthlyData[monthKey] = {
-          month: format(parseDbDateToLocal(calendarDate), "MMM", { locale: ptBR }),
-          entrada: 0,
-          saida: 0,
-          consumo: 0,
-          ledgerDelta: 0,
-        };
-      }
-
-      monthlyData[monthKey].ledgerDelta += movementEffect(m.type, Number(m.quantity));
-
-      if (m.type === "Entrada") {
-        monthlyData[monthKey].entrada += Math.abs(Number(m.quantity));
-      } else if (m.type === "Saída") {
-        monthlyData[monthKey].saida += Math.abs(Number(m.quantity));
-      } else if (m.type === "Ajuste") {
-        if (Number(m.quantity) >= 0) monthlyData[monthKey].saida += Number(m.quantity);
-        else monthlyData[monthKey].entrada += Math.abs(Number(m.quantity));
-      } else if (m.type === "Consumo") {
-        if (!m.session_id || !consumedSessions.has(m.session_id)) {
-          if (m.session_id) consumedSessions.add(m.session_id);
-          monthlyData[monthKey].consumo += consumptionBySessionId.get(m.session_id || "") ?? Math.abs(Number(m.quantity));
-        }
-      }
-    });
-
-    const evolution = Object.keys(monthlyData).sort().map((key) => {
-      const data = monthlyData[key];
-      accumulatedBalance += data.ledgerDelta;
-      return {
-        month: data.month,
-        entrada: Number(data.entrada.toFixed(2)),
-        saida: Number(data.saida.toFixed(2)),
-        consumo: Number(data.consumo.toFixed(2)),
-        saldo: Number(Math.max(0, accumulatedBalance).toFixed(2)),
-      };
-    });
-
-    // The current balance must come from the current stock table. The movement
-    // ledger is historical and can differ when older entries were corrected.
-    if (year === currentYear && evolution.length > 0) {
-      evolution[evolution.length - 1].saldo = Number(currentStock.toFixed(2));
-    }
-
-    return evolution;
-  }, [movements, year, currentStock, consumptionBySessionId]);
+  const movementsByTypeData = useMemo(
+    () => getMovementsByType(movements, year, consumptionBySessionId),
+    [movements, year, consumptionBySessionId],
+  );
+  const stockEvolutionData = useMemo(
+    () => getStockEvolution(movements, year, currentStock, consumptionBySessionId, currentYear),
+    [movements, year, currentStock, consumptionBySessionId],
+  );
 
   const mestreAssistentes = useMemo(
     () =>
